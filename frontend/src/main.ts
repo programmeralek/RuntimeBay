@@ -40,6 +40,7 @@ class App implements OnDestroy {
   loading = signal(true);
   error = signal('');
   pending = signal<string[]>([]);
+  workflowOperation = signal(false);
   sheet = signal<'project' | 'service' | 'delete' | null>(null);
   saving = signal(false);
   formError = signal('');
@@ -56,6 +57,7 @@ class App implements OnDestroy {
   yamlRunning = computed(() => this.yamlStatus().projectId === this.projectId() && this.yamlStatus().running);
   yamlManaged(service: Service) { return this.yamlStatus().projectId === this.projectId() && this.yamlStatus().managedServiceIds.includes(service.id); }
   @ViewChild(WorkflowYaml) yamlConfig?: WorkflowYaml;
+  @ViewChild(WorkflowContainers) workflowContainers?: WorkflowContainers;
   canStartAll = computed(() => !!this.workflow() && (this.project()?.services.filter(s => !this.active(s)).every(s => this.canStart(s)) ?? false));
   service = computed(() => this.project()?.services.find(s => s.id === this.serviceId()) || null);
   running = computed(() => this.projects().flatMap(p => p.services).filter(s => this.active(s)).length);
@@ -67,7 +69,7 @@ class App implements OnDestroy {
     return this.logs().filter(l => !query || l.message.toLowerCase().includes(query) || l.stream.includes(query));
   });
   projectForm = { name: '', path: '' };
-  serviceForm = { name: '', command: '', directory: '.', port: null as number | null };
+  serviceForm = { name: '', command: '', directory: '.', port: null as number | null, dependsOnResourceId: '' };
   editId: string | null = null;
   private after = 0;
   private selectionRevision = 0;
@@ -239,33 +241,46 @@ class App implements OnDestroy {
   active(service: Service) { return ['running', 'starting', 'stopping'].includes(service.state); }
   busy(service: Service) { return this.yamlRunning() || this.pending().includes(service.id) || service.state === 'starting' || service.state === 'stopping'; }
   canStart(service: Service) { return this.workflow()?.resources.some(r => r.resourceId === service.id && r.type === 'service' && r.status === 'local') ?? false; }
-  async action(service: Service, action: 'start' | 'stop' | 'restart') {
+  async action(service: Service, action: 'start' | 'stop' | 'restart', withinWorkflow = false) {
     const project = this.project();
-    if (!project || this.busy(service)) return;
+    if (!project || this.busy(service) || this.workflowOperation() && !withinWorkflow) return;
     if (this.yamlManaged(service) && action !== 'stop') { if (action === 'start') await this.yamlConfig?.showPlan(service.id); else this.error.set('Stop this YAML-managed process, then review its run to restart with the correct environment and dependencies.'); return; }
     if (action !== 'stop' && !this.canStart(service)) { this.error.set('Resolve this service’s machine binding before starting. Remote service execution is not available yet.'); return; }
     const releaseLoading = this.loadingTasks.begin(`${action === 'start' ? 'Starting' : action === 'stop' ? 'Stopping' : 'Restarting'} ${service.name}…`);
     this.pending.update(ids => [...ids, service.id]); this.error.set('');
     this.selectService(service.id);
     try {
+      if (action === 'start' && !this.yamlManaged(service)) await this.startDependencies(service, new Set());
       await this.api(`/projects/${project.id}/services/${service.id}/${action}`, 'POST', { environmentId: this.workflow()?.definition.defaultEnvironmentId, workflowRevision: this.workflow()?.revision });
       await this.refresh();
     } catch (e) { this.error.set((e as Error).message); }
     finally { this.pending.update(ids => ids.filter(id => id !== service.id)); releaseLoading(); }
   }
   async all(action: 'start' | 'stop') {
-    if (action === 'start' && this.yamlConfigured()) { await this.yamlConfig?.showPlan(); return; }
+    if (action === 'start' && this.yamlConfigured() && this.project()?.services.some(service => this.yamlManaged(service))) { await this.yamlConfig?.showPlan(); return; }
     if (action === 'start' && !this.canStartAll()) { this.error.set('Some services have unavailable targets. Resolve their bindings before starting this workflow.'); return; }
-    const services = this.project()?.services.filter(s => action === 'start' ? !this.active(s) : this.active(s)) || [];
-    await Promise.all(services.map(s => this.action(s, action)));
+    if (!this.project()) return;
+    const ordered = this.orderedServices();
+    const services = action === 'start' ? ordered.filter(s => !this.active(s)) : ordered.filter(s => this.active(s)).reverse();
+    this.error.set(''); this.workflowOperation.set(true);
+    try {
+      if (action === 'start') await this.workflowContainers?.startAll();
+      for (const service of services) {
+        await this.action(service, action, true);
+        if (this.error()) throw new Error(this.error());
+      }
+      if (action === 'stop') await this.workflowContainers?.stopAll();
+      await this.refresh();
+    } catch (error) { this.error.set((error as Error).message); }
+    finally { this.workflowOperation.set(false); }
   }
   openProject() { this.view.set('runtime'); this.projectForm = { name: '', path: '' }; this.formError.set(''); this.sheet.set('project'); }
   chooseFolder() { window.webkit?.messageHandlers.runtimeBay.postMessage('chooseFolder'); }
   native() { return !!window.runtimeBayNative; }
   openService(service?: Service) {
     this.editId = service?.id || null;
-    this.serviceForm = service ? { name: service.name, command: service.command, directory: service.directory, port: service.port }
-      : { name: '', command: '', directory: '.', port: null };
+    this.serviceForm = service ? { name: service.name, command: service.command, directory: service.directory, port: service.port, dependsOnResourceId: service.dependsOnResourceId || '' }
+      : { name: '', command: '', directory: '.', port: null, dependsOnResourceId: '' };
     this.formError.set(''); this.sheet.set('service');
   }
   async saveProject() {
@@ -290,6 +305,52 @@ class App implements OnDestroy {
     } catch (e) { this.formError.set((e as Error).message); }
     finally { this.saving.set(false); releaseLoading(); }
   }
+  dependencyChoices() {
+    return this.workflow()?.definition.resources.filter(resource => resource.id !== this.editId)
+      .map(resource => ({ id: resource.id, name: resource.name, type: resource.type })) || [];
+  }
+  orderedServices() {
+    const services = this.project()?.services || [], byId = new Map(services.map(service => [service.id, service]));
+    const result: Service[] = [], visiting = new Set<string>(), visited = new Set<string>();
+    const visit = (service: Service) => {
+      if (visited.has(service.id) || visiting.has(service.id)) return;
+      visiting.add(service.id);
+      const dependency = service.dependsOnResourceId ? byId.get(service.dependsOnResourceId) : null;
+      if (dependency) visit(dependency);
+      visiting.delete(service.id); visited.add(service.id); result.push(service);
+    };
+    services.forEach(visit); return result;
+  }
+  private async startDependencies(service: Service, visited: Set<string>) {
+    if (visited.has(service.id)) return; visited.add(service.id);
+    const dependencyId = service.dependsOnResourceId; if (!dependencyId) return;
+    const dependency = this.project()?.services.find(item => item.id === dependencyId);
+    if (dependency) {
+      if (dependency.state !== 'running') {
+        if (this.yamlManaged(dependency)) throw new Error(`Start the YAML-managed dependency ${dependency.name} through the reviewed workflow run first.`);
+        await this.startDependencies(dependency, visited);
+        await this.api(`/projects/${this.projectId()}/services/${dependency.id}/start`, 'POST', { environmentId: this.workflow()?.definition.defaultEnvironmentId, workflowRevision: this.workflow()?.revision });
+      }
+    } else await this.workflowContainers?.startDependency(dependencyId);
+  }
+  async startRemainingWorkflowServices() {
+    this.workflowOperation.set(true);
+    try {
+      for (const service of this.orderedServices()) if (!this.yamlManaged(service) && !this.active(service)) {
+        await this.action(service, 'start', true);
+        if (this.error()) throw new Error(this.error());
+      }
+    } finally { this.workflowOperation.set(false); }
+  }
+  async moveService(id: string, delta: -1 | 1) {
+    const project = this.project(); if (!project) return;
+    const ordered = [...project.services], from = ordered.findIndex(service => service.id === id), to = from + delta;
+    if (from < 0 || to < 0 || to >= ordered.length || this.pending().length || this.workflowOperation() || this.yamlRunning()) return;
+    [ordered[from], ordered[to]] = [ordered[to], ordered[from]]; this.error.set('');
+    try { await this.api(`/projects/${project.id}/services/order`, 'PUT', { ids: ordered.map(service => service.id) }); this.projects.update(items => items.map(item => item.id === project.id ? { ...item, services: ordered } : item)); }
+    catch (error) { this.error.set((error as Error).message); }
+  }
+  startWorkflowContainers = async () => { this.workflowOperation.set(true); try { await this.workflowContainers?.startAll(); } finally { this.workflowOperation.set(false); } };
   async deleteService() {
     const project = this.project(), service = this.service(); if (!project || !service) return;
     const releaseLoading = this.loadingTasks.begin('Removing service…');

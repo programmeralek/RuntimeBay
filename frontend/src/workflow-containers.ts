@@ -73,6 +73,38 @@ export class WorkflowContainers implements OnChanges, OnDestroy {
     finally { if (revision === this.revision) this.refreshing = false; }
   }
   state(link: Link) { return this.states().find(value => value.link.id === link.id); }
+  async startDependency(resourceId: string) {
+    await this.load(); await this.refresh();
+    const state = this.states().find(value => value.link.id === resourceId);
+    if (!state || state.state === 'missing' || state.state === 'unavailable') throw new Error(state?.error || 'The selected container dependency is not available in this workflow environment.');
+    if (state.state === 'running') return;
+    await this.runContainerAction(state.link, state.state === 'paused' ? 'resume' : 'start');
+    await this.refresh();
+  }
+  async startAll() {
+    await this.load(); await this.refresh(); if (this.error()) throw new Error(this.error());
+    for (const state of this.states()) {
+      if (state.state === 'running') continue;
+      if (state.state === 'missing' || state.state === 'unavailable') throw new Error(state.error || `Container ${state.link.name} is unavailable.`);
+      await this.runContainerAction(state.link, state.state === 'paused' ? 'resume' : 'start');
+      await this.refresh();
+    }
+  }
+  async stopAll() {
+    await this.load(); await this.refresh(); if (this.error()) throw new Error(this.error());
+    for (const state of [...this.states()].reverse()) {
+      if (!['running', 'paused'].includes(state.state)) continue;
+      await this.runContainerAction(state.link, 'stop');
+      await this.refresh();
+    }
+  }
+  private async runContainerAction(link: Link, action: 'start' | 'stop' | 'resume') {
+    if (this.pending().includes(link.id)) return;
+    this.pending.update(ids => [...ids, link.id]); this.error.set('');
+    try { await this.api(this.path() + '/' + link.id + '/' + action, 'POST', { environmentId: this.environmentId, workflowRevision: this.workflowRevision }); }
+    catch (error) { this.error.set((error as Error).message); throw error; }
+    finally { this.pending.update(ids => ids.filter(id => id !== link.id)); }
+  }
   linked(container: DockerContainer) { const host = this.host(); return this.sourceLinks().some(link => link.context === host?.name && link.endpoint === host.endpoint && link.containerId === container.id); }
   async show() {
     this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;

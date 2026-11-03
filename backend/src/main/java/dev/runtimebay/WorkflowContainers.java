@@ -49,6 +49,8 @@ final class WorkflowContainers {
         var updated = new ArrayList<>(links); updated.add(link); commit(updated); return link;
     }
     synchronized void remove(String projectId, String id) throws IOException {
+        if (projects.project(projectId).services().stream().anyMatch(service -> id.equals(service.dependsOnResourceId())))
+            throw new ApiException(409, "A workflow service depends on this container. Update the service dependency before unlinking it.");
         Link link = find(projectId, id); var updated = new ArrayList<>(links); updated.remove(link); commit(updated);
     }
     private synchronized Link find(String projectId, String id) { return list(projectId).stream().filter(link -> link.id().equals(id)).findFirst().orElseThrow(() -> new ApiException(404, "Workflow container not found")); }

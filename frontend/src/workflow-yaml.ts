@@ -13,6 +13,8 @@ interface RunPreview { revision: string; target: string; environmentName: string
 export class WorkflowYaml implements OnChanges, OnDestroy {
   @Input() projectId = '';
   @Input() session = '';
+  @Input() beforeRun?: () => Promise<void>;
+  @Input() afterRun?: () => Promise<void>;
   @Output() changed = new EventEmitter<void>();
   @Output() statusChange = new EventEmitter<YamlStatus>();
   info = signal<Info | null>(null);
@@ -38,10 +40,11 @@ export class WorkflowYaml implements OnChanges, OnDestroy {
   private controller = new AbortController();
   private revision = 0;
   private loading = false;
+  private pendingFullStackRun = '';
   private tasks = inject(LoadingService).scope();
   private returnFocus: HTMLElement | null = null;
   private timer = setInterval(() => void this.load(), 1500);
-  ngOnChanges() { this.revision++; this.controller.abort(); this.controller = new AbortController(); this.loading = false; this.busy.set(false); this.info.set(null); this.open.set(false); this.publish(); void this.load(); }
+  ngOnChanges() { this.revision++; this.controller.abort(); this.controller = new AbortController(); this.loading = false; this.busy.set(false); this.pendingFullStackRun = ''; this.info.set(null); this.open.set(false); this.publish(); void this.load(); }
   private publish() { this.statusChange.emit({ projectId: this.projectId, configured: !!this.info()?.configured, managedServiceIds: this.info()?.managedServiceIds || [], running: this.running() }); }
   private async api<T>(suffix = '', method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch('/api/workflows/' + this.projectId + '/manifest' + suffix, { method, signal: this.controller.signal, headers: { Authorization: 'Bearer ' + this.session, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -49,7 +52,7 @@ export class WorkflowYaml implements OnChanges, OnDestroy {
   }
   async load() {
     if (!this.projectId || this.loading) return; const revision = this.revision; this.loading = true;
-    try { const value = await this.api<Info>(); if (revision === this.revision) { this.info.set(value); this.publish(); } }
+    try { const value = await this.api<Info>(); if (revision === this.revision) { this.info.set(value); this.publish(); this.checkFullStackCompletion(value); } }
     catch (error) { if (revision === this.revision && !this.controller.signal.aborted) this.error.set((error as Error).message); }
     finally { if (revision === this.revision) this.loading = false; }
   }
@@ -86,7 +89,12 @@ export class WorkflowYaml implements OnChanges, OnDestroy {
   async reviewRun() { await this.operation('Reviewing stack execution order…', async () => this.runPreview.set(await this.api<RunPreview>('/plan' + (this.process() ? '?process=' + encodeURIComponent(this.process()) : '')))); }
   async run() {
     const preview = this.runPreview(); if (!preview || this.running()) return;
-    await this.operation('Starting the reviewed stack plan…', async () => { await this.api('/run','POST',{ process: this.process(), revision: preview.revision }); await this.load(); this.changed.emit(); this.busy.set(false); this.dismiss(); });
+    await this.operation('Starting the reviewed stack plan…', async () => { await this.beforeRun?.(); const run = await this.api<RunState>('/run','POST',{ process: this.process(), revision: preview.revision }); this.pendingFullStackRun = this.process() ? '' : run.id; await this.load(); this.changed.emit(); this.busy.set(false); this.dismiss(); });
+  }
+  private checkFullStackCompletion(value: Info) {
+    if (!this.pendingFullStackRun || value.plan.id !== this.pendingFullStackRun || ['running','cancelling'].includes(value.plan.state)) return;
+    const completed = value.plan.state === 'completed'; this.pendingFullStackRun = '';
+    if (completed && this.afterRun) void this.afterRun().catch(error => this.error.set((error as Error).message));
   }
   async cancel() { const runId = this.info()?.plan.id; if (!runId) return; await this.operation('Requesting stack cancellation…', async () => { await this.api('/cancel','POST',{ runId }); await this.load(); }); }
   private async operation(label: string, operation: () => Promise<unknown>) {

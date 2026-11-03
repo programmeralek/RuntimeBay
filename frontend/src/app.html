@@ -43,7 +43,7 @@
         <div class="notice" role="alert">The local engine is disconnected. Reopen Runtime Bay to reconnect. <button (click)="refreshForeground()">Retry</button></div>
       }
       @if (error()) { <div class="notice" role="alert">{{ error() }}<button aria-label="Dismiss error" (click)="error.set('')">×</button></div> }
-      <div class="page-title"><div><div class="eyebrow">YOUR LOCAL DEVELOPMENT, IN ORDER</div><h1>{{ project()?.name || 'A place for everything running.' }}</h1>@if (project()) { <button class="workflow-path" (click)="openWorkflowTerminal()" [disabled]="terminals.creating()" title="Open a terminal in this workflow folder">{{ project()!.path }} <span aria-hidden="true">↵</span></button> } @else { <p class="subtitle">Bring your services together. Keep your flow.</p> }</div><span class="title-symbol" aria-hidden="true">◒</span></div>
+      <div class="page-title"><div><div class="eyebrow">YOUR LOCAL DEVELOPMENT, IN ORDER</div><h1>{{ project()?.name || 'A place for everything running.' }}</h1>@if (project()) { <button class="workflow-path" (click)="openWorkflowTerminal()" [disabled]="terminals.creating()" title="Open a terminal in this workflow folder">{{ project()!.path }} <span aria-hidden="true">↵</span></button> } @else { <p class="subtitle">Bring your services together. Keep your flow.</p> }</div>@if (project()) { <div class="workflow-power-controls" role="group" [attr.aria-label]="'Start or stop ' + project()!.name"><button class="workflow-power-stop" title="Stop all workflow services and containers" aria-label="Stop all workflow services and containers" (click)="all('stop')" [disabled]="!connected() || workflowOperation() || yamlRunning()">■</button><button class="workflow-power-start" title="Start all workflow containers and services" aria-label="Start all workflow containers and services" (click)="all('start')" [disabled]="!connected() || workflowOperation() || yamlRunning() || (!yamlConfigured() && !canStartAll())">▶</button></div> } @else { <span class="title-symbol" aria-hidden="true">◒</span>}</div>
       @if (project()) { <div class="workflow-page-tabs" role="tablist" aria-label="Workflow views"><button role="tab" aria-selected="true" class="selected">Runtime</button><button role="tab" aria-selected="false" (click)="view.set('databases')">Databases</button><button role="tab" aria-selected="false" (click)="openWorkflowTerminal()">Terminal</button></div> }
       <div class="overview">
         <div class="stat"><span>PROJECTS</span><strong>{{ projects().length.toString().padStart(2, '0') }}</strong><small>in your workspace</small></div>
@@ -56,7 +56,7 @@
         <section class="welcome"><div class="welcome-art" aria-hidden="true"><span>⌘</span><i></i><b></b></div><div class="eyebrow">LET’S CLEAR THE DECK</div><h2>Your next project starts here.</h2><p>Choose a folder, add the commands you already use,<br>and manage your services from one place.</p><button class="primary" (click)="openProject()">＋ Import your first project</button><small>Your files stay where they are.</small></section>
       } @else {
         @if (workflow(); as w) {
-          <app-workflow-yaml [projectId]="project()!.id" [session]="sessionToken" (changed)="refresh()" (statusChange)="yamlStatus.set($event)"></app-workflow-yaml>
+          <app-workflow-yaml [projectId]="project()!.id" [session]="sessionToken" [beforeRun]="startWorkflowContainers" [afterRun]="startRemainingWorkflowServices" (changed)="refresh()" (statusChange)="yamlStatus.set($event)"></app-workflow-yaml>
           <section class="workflow-targets" aria-labelledby="workflow-targets-title">
             <div class="section-heading"><div><h2 id="workflow-targets-title">Resource targets <span class="count">{{ w.resources.length }}</span></h2><p>Bindings in {{ environmentName() }}. Each resource keeps its own target.</p></div><app-environments [workflow]="w" [session]="sessionToken" [active]="workflowActive()" (saved)="workflowSaved($event)"></app-environments></div>
             @if (!w.resources.length) { <p class="workflow-target-empty">Add a service or link a container to build this workflow.</p> }
@@ -71,10 +71,6 @@
         }
         <section class="services-section">
           <div class="section-heading"><div><h2>Services <span class="count">{{ project()!.services.length }}</span></h2><p>The moving parts of your project.</p></div><div class="section-actions">
-            @if (project()!.services.length) {
-              <button class="text-button" (click)="all('stop')" [disabled]="!connected() || pending().length > 0 || yamlRunning()">Stop services</button>
-              <button class="secondary" (click)="all('start')" [disabled]="!connected() || pending().length > 0 || yamlRunning() || (!yamlConfigured() && !canStartAll())">{{ yamlConfigured() ? 'Review stack' : '▷ Start services' }}</button>
-            }
             <button class="primary" (click)="openService()" [disabled]="!connected()">＋ Add service</button>
           </div></div>
           @if (!project()!.services.length) {
@@ -88,11 +84,11 @@
                     <h3>{{ s.name }}</h3><code class="command" [title]="s.command">{{ s.command }}</code>
                     <div class="service-meta"><span class="port-label" [class.port-live]="s.portInfo?.owners?.length" [title]="'Listening processes are shown below in the inspector'">{{ portLabel(s) }}</span><span>{{ elapsed(s) }}</span></div>
                   </button>
-                  <div class="service-controls"><button class="inspect-button" (click)="selectService(s.id)">View logs <span>↗</span></button><div>
+                  <div class="service-controls"><div class="service-controls-left"><span class="service-order-controls"><button type="button" (click)="moveService(s.id, -1)" [disabled]="$index === 0 || pending().length > 0 || workflowOperation() || yamlRunning()" [attr.aria-label]="'Move ' + s.name + ' earlier in startup order'" title="Move earlier">↑</button><button type="button" (click)="moveService(s.id, 1)" [disabled]="$index === project()!.services.length - 1 || pending().length > 0 || workflowOperation() || yamlRunning()" [attr.aria-label]="'Move ' + s.name + ' later in startup order'" title="Move later">↓</button></span><button class="inspect-button" (click)="selectService(s.id)">View logs <span>↗</span></button></div><div>
                     @if (active(s)) {
-                      <button class="icon-button" aria-label="Restart service" title="Restart service" (click)="action(s, 'restart')" [disabled]="busy(s) || !connected() || !canStart(s) || yamlManaged(s)">↻</button>
-                      <button class="stop-button" (click)="action(s, 'stop')" [disabled]="busy(s) || !connected()">{{ busy(s) ? 'Working…' : '■ Stop' }}</button>
-                    } @else { <button class="start-button" (click)="action(s, 'start')" [disabled]="busy(s) || !connected() || !canStart(s)">{{ busy(s) ? 'Working…' : yamlManaged(s) ? 'Review run' : '▷ Start' }}</button> }
+                      <button class="icon-button" aria-label="Restart service" title="Restart service" (click)="action(s, 'restart')" [disabled]="busy(s) || !connected() || workflowOperation() || !canStart(s) || yamlManaged(s)">↻</button>
+                      <button class="stop-button" (click)="action(s, 'stop')" [disabled]="busy(s) || !connected() || workflowOperation()">{{ busy(s) ? 'Working…' : '■ Stop' }}</button>
+                    } @else { <button class="start-button" (click)="action(s, 'start')" [disabled]="busy(s) || !connected() || workflowOperation() || !canStart(s)">{{ busy(s) ? 'Working…' : yamlManaged(s) ? 'Review run' : '▷ Start' }}</button> }
                   </div></div>
                 </article>
               }
@@ -141,6 +137,7 @@
         <label>SERVICE NAME<input name="name" [(ngModel)]="serviceForm.name" placeholder="API server" maxlength="80" required autofocus></label>
         <label>START COMMAND<textarea name="command" [(ngModel)]="serviceForm.command" placeholder="npm run dev" required rows="3" maxlength="4096"></textarea><small>Runs with your login shell environment using zsh.</small></label>
         <div class="form-row"><label>DIRECTORY<input name="directory" [(ngModel)]="serviceForm.directory" placeholder="." required><small>Relative to the project folder.</small></label><label>TCP PORT <em>optional</em><input name="port" type="number" min="1" max="65535" [(ngModel)]="serviceForm.port" placeholder="3000"><small>Inspect who’s listening here.</small></label></div>
+        <label>START AFTER <em>optional</em><select name="dependsOnResourceId" [(ngModel)]="serviceForm.dependsOnResourceId" [disabled]="yamlConfigured()"><option value="">No dependency</option>@for (resource of dependencyChoices(); track resource.id) { <option [value]="resource.id">{{ resource.type === 'service' ? 'Service · ' : 'Container · ' }}{{ resource.name }}</option> }</select><small>{{ yamlConfigured() ? 'This workflow is managed by runtimebay.yaml. Define process dependencies in the YAML file.' : 'Start this service after the selected workflow resource. Container dependencies start first.' }}</small></label>
         @if (formError()) { <p class="form-error" role="alert">{{ formError() }}</p> }
         <div class="modal-footer"><small>Runs when you press Start, under your user account.</small><button class="primary" type="submit" [disabled]="saving() || !serviceForm.name || !serviceForm.command">{{ saving() ? 'Saving…' : editId ? 'Save changes' : 'Add service' }}</button></div>
       </form>

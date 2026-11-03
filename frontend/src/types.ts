@@ -2,6 +2,7 @@ export interface PortOwner { pid: number; command: string; managed: boolean }
 export interface PortInfo { number: number; status: 'available' | 'listening' | 'unknown'; owners: PortOwner[] }
 export interface Service {
   id: string; name: string; command: string; directory: string; port: number | null;
+  dependsOnResourceId: string | null;
   state: 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'exited' | 'failed';
   pid: number | null; exitCode: number | null; startedAt: string | null; portInfo: PortInfo | null;
 }

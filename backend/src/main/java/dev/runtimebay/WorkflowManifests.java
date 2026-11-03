@@ -78,8 +78,8 @@ final class WorkflowManifests {
             String id=existing==null?WorkflowStore.stable("yaml-process",projectId+"\0"+logical):existing.id();
             if(!claimed.add(id))throw new ApiException(400,"Multiple YAML processes resolve to the same configured service");
             ProjectStore.resolveDirectory(project,process.directory());services.put(logical,id);
-            var expected=new Service(id,process.name(),process.command(),process.directory(),process.port());
-            changes.add((existing==null?"Add ":existing.equals(expected)?"Keep ":"Update ")+logical+" · "+process.mode()+" · "+process.command());
+            boolean unchanged=existing!=null&&existing.name().equals(process.name())&&existing.command().equals(process.command())&&existing.directory().equals(process.directory())&&Objects.equals(existing.port(),process.port());
+            changes.add((existing==null?"Add ":unchanged?"Keep ":"Update ")+logical+" · "+process.mode()+" · "+process.command());
         }
         if(old!=null)for(var item:old.services().entrySet())if(!services.containsValue(item.getValue())&&project.services().stream().anyMatch(s->s.id().equals(item.getValue())))changes.add("Remove YAML-managed definition: "+item.getKey()+" (no workload is deleted)");
         long retained=project.services().stream().filter(s->!claimed.contains(s.id())&&(old==null||!old.services().containsValue(s.id()))).count();if(retained>0)warnings.add(retained+" existing service definitions are retained outside the YAML stack");
@@ -116,7 +116,7 @@ final class WorkflowManifests {
             try{
                 var old=get(projectId);var d=preview.definition();var nextServices=new ArrayList<Service>();
                 for(var service:projects.project(projectId).services())if(!preview.services().containsValue(service.id())&&(old==null||!old.services().containsValue(service.id())))nextServices.add(service);
-                for(var item:d.processes().entrySet()){var p=item.getValue();nextServices.add(new Service(preview.services().get(item.getKey()),p.name(),p.command(),p.directory(),p.port()));}
+                for(var item:d.processes().entrySet()){var p=item.getValue();String serviceId=preview.services().get(item.getKey());Service previous=projects.project(projectId).services().stream().filter(s->s.id().equals(serviceId)).findFirst().orElse(null);nextServices.add(new Service(serviceId,p.name(),p.command(),p.directory(),p.port(),previous==null?null:previous.dependsOnResourceId()));}
                 projects.importServices(projectId,d.name(),nextServices);
                 var createdLinks=new HashSet<String>(old==null?Set.of():old.createdLinks());var createdAttachments=new HashSet<String>(old==null?Set.of():old.createdAttachments());
                 var resourceIds=new LinkedHashMap<String,String>();var attachmentIds=new LinkedHashMap<String,String>();

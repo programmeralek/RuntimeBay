@@ -61,28 +61,67 @@ final class ProjectStore {
     }
     synchronized Service saveService(String projectId, String id, String name, String command,
                                      String directory, Integer port) throws IOException {
+        return saveService(projectId, id, name, command, directory, port, null);
+    }
+    synchronized Service saveService(String projectId, String id, String name, String command,
+                                     String directory, Integer port, String dependsOnResourceId) throws IOException {
         Project project = project(projectId);
         if (port != null && (port < 1 || port > 65535)) throw new ApiException(400, "Port must be between 1 and 65535");
         String cwd = directory == null || directory.isBlank() ? "." : directory;
         resolveDirectory(project, cwd);
-        Service service = new Service(id == null ? UUID.randomUUID().toString() : id,
-            text(name, "Service name", 80), text(command, "Command", 4096), cwd, port);
+        String serviceId = id == null ? UUID.randomUUID().toString() : id;
+        validateDependency(project, serviceId, dependsOnResourceId);
+        Service service = new Service(serviceId,
+            text(name, "Service name", 80), text(command, "Command", 4096), cwd, port, cleanDependency(dependsOnResourceId));
         var services = new ArrayList<>(project.services());
         if (id != null) {
-            service(projectId, id);
-            services.removeIf(s -> s.id().equals(id));
+            Service previous = service(projectId, id);
+            int index = services.indexOf(previous);
+            services.set(index, service);
+        } else {
+            services.add(service);
         }
-        if (services.stream().anyMatch(s -> s.name().equalsIgnoreCase(service.name())))
+        if (services.stream().anyMatch(s -> !s.id().equals(service.id()) && s.name().equalsIgnoreCase(service.name())))
             throw new ApiException(409, "A service with this name already exists");
-        services.add(service);
         replace(project, services);
         return service;
+    }
+    synchronized Project reorderServices(String projectId, List<String> ids) throws IOException {
+        Project project = project(projectId);
+        if (ids == null || ids.size() != project.services().size() || new HashSet<>(ids).size() != ids.size()
+            || !new HashSet<>(ids).equals(project.services().stream().map(Service::id).collect(java.util.stream.Collectors.toSet())))
+            throw new ApiException(400, "Service order must include every workflow service exactly once");
+        Map<String, Service> byId = new HashMap<>(); project.services().forEach(service -> byId.put(service.id(), service));
+        List<Service> ordered = ids.stream().map(byId::get).toList(); replace(project, ordered); return project(projectId);
     }
     synchronized void removeService(String projectId, String id) throws IOException {
         Project project = project(projectId);
         service(projectId, id);
+        if (project.services().stream().anyMatch(item -> id.equals(item.dependsOnResourceId())))
+            throw new ApiException(409, "Another service depends on this one. Update its dependency before removing it.");
         replace(project, project.services().stream().filter(s -> !s.id().equals(id)).toList());
     }
+    private void validateDependency(Project project, String serviceId, String dependency) throws IOException {
+        if (dependency == null || dependency.isBlank()) return;
+        if (dependency.equals(serviceId)) throw new ApiException(400, "A service cannot depend on itself");
+        boolean serviceResource = project.services().stream().anyMatch(item -> item.id().equals(dependency));
+        boolean containerResource = false;
+        Path linksFile = file.getParent().resolve("workflow-containers.json");
+        if (Files.exists(linksFile)) try {
+            WorkflowContainers.Registry registry = gson.fromJson(Files.readString(linksFile), WorkflowContainers.Registry.class);
+            containerResource = registry != null && registry.links() != null && registry.links().stream()
+                .anyMatch(link -> link.projectId().equals(project.id()) && link.id().equals(dependency));
+        } catch (RuntimeException error) { throw new IOException("Cannot validate service dependencies because saved workflow containers are invalid.", error); }
+        if (!serviceResource && !containerResource) throw new ApiException(400, "Choose a service or linked container from this workflow");
+        if (!serviceResource) return;
+        Map<String, String> dependencies = new HashMap<>();
+        for (Service item : project.services()) if (!item.id().equals(serviceId) && item.dependsOnResourceId() != null) dependencies.put(item.id(), item.dependsOnResourceId());
+        dependencies.put(serviceId, dependency);
+        Set<String> visited = new HashSet<>(); String cursor = dependency;
+        while (cursor != null && visited.add(cursor)) cursor = dependencies.get(cursor);
+        if (cursor != null) throw new ApiException(400, "Service dependencies cannot contain a cycle");
+    }
+    private static String cleanDependency(String dependency) { return dependency == null || dependency.isBlank() ? null : dependency.trim(); }
     synchronized void importServices(String projectId, String name, List<Service> services) throws IOException {
         Project original=project(projectId);Set<String> ids=new HashSet<>(),names=new HashSet<>();
         for(var service:services) {

@@ -72,20 +72,24 @@ final class RuntimeManager implements AutoCloseable {
         Slot slot = slot(service.id());
         String state; Long pid; Integer code; String time;
         synchronized (slot) { state = slot.state; pid = slot.group; code = slot.exitCode; time = slot.startedAt; }
-        return new ServiceView(service.id(), service.name(), service.command(), service.directory(), service.port(),
+        return new ServiceView(service.id(), service.name(), service.command(), service.directory(), service.port(), service.dependsOnResourceId(),
             state, pid, code, time, ports.inspect(service.port(), pid));
     }
     // Saving a definition and launching it use the same lock so an edit cannot race a start.
     Service save(String projectId, String id, String name, String command, String directory, Integer port) throws IOException {
-        if (id == null) return store.saveService(projectId, null, name, command, directory, port);
+        return save(projectId, id, name, command, directory, port, null);
+    }
+    Service save(String projectId, String id, String name, String command, String directory, Integer port, String dependsOnResourceId) throws IOException {
+        if (id == null) return store.saveService(projectId, null, name, command, directory, port, dependsOnResourceId);
         Slot slot = slot(id);
         slot.operation.lock();
         try { synchronized (slot) {
                 requireStopped(slot);
-                return store.saveService(projectId, id, name, command, directory, port);
+                return store.saveService(projectId, id, name, command, directory, port, dependsOnResourceId);
             }
         } finally { slot.operation.unlock(); }
     }
+    Project reorder(String projectId, List<String> ids) throws IOException { return store.reorderServices(projectId, ids); }
     void remove(String projectId, String id) throws IOException {
         Slot slot = slot(id);
         slot.operation.lock();

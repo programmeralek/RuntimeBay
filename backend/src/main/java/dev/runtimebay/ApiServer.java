@@ -151,6 +151,12 @@ final class ApiServer implements AutoCloseable {
         if (parts.length >= 4 && parts[1].equals("projects") && parts[3].equals("services")) {
             String project = parts[2];
             if (!method.equals("GET")) plans.requireIdle(project);
+            if (parts.length == 5 && parts[4].equals("order") && method.equals("PUT")) {
+                JsonObject body = body(e); JsonArray raw = body.has("ids") && body.get("ids").isJsonArray() ? body.getAsJsonArray("ids") : null;
+                if (raw == null) throw new ApiException(400, "Include the ordered service IDs");
+                List<String> ids = new ArrayList<>(); for (JsonElement item : raw) { if (!item.isJsonPrimitive() || !item.getAsJsonPrimitive().isString()) throw new ApiException(400, "Service IDs must be strings"); ids.add(item.getAsString()); }
+                json(e, 200, runtimes.reorder(project, ids)); return;
+            }
             if ((parts.length == 4 && method.equals("POST")) || (parts.length == 5 && method.equals("PUT"))) {
                 JsonObject body = body(e);
                 Integer port = null;
@@ -161,7 +167,7 @@ final class ApiServer implements AutoCloseable {
                     port = value.getAsInt();
                 }
                 json(e, parts.length == 4 ? 201 : 200, runtimes.save(project, parts.length == 5 ? parts[4] : null,
-                    string(body, "name"), string(body, "command"), string(body, "directory"), port)); return;
+                    string(body, "name"), string(body, "command"), string(body, "directory"), port, string(body, "dependsOnResourceId"))); return;
             }
             if (parts.length == 5 && method.equals("DELETE")) {
                 runtimes.remove(project, parts[4]); json(e, 200, Map.of("ok", true)); return;

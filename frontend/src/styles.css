@@ -266,6 +266,12 @@ main {
   margin-bottom:27px;
   gap:20px
 }
+.workflow-power-controls { display:flex; align-items:center; gap:10px; flex:none }
+.workflow-power-controls button { width:44px; height:44px; border-radius:8px; font-size:19px; font-weight:700; box-shadow:0 2px 8px var(--shadow) }
+.workflow-power-stop { color:#fff; background:var(--danger-solid) }
+.workflow-power-stop:hover { filter:brightness(1.08) }
+.workflow-power-start { color:#fff; background:var(--success-ink) }
+.workflow-power-start:hover { filter:brightness(1.08) }
 .eyebrow {
   font-size:calc(8px * var(--font-scale, 1));
   font-weight:600;
@@ -470,6 +476,11 @@ main {
   justify-content:space-between;
   margin-bottom:17px
 }
+.service-controls-left { display:flex; align-items:center; gap:10px }
+.service-order-controls { display:inline-flex; align-items:center; gap:3px }
+.service-order-controls button { min-width:28px; height:27px; border:1px solid var(--line); border-radius:5px; color:var(--muted); background:var(--surface-soft); font-size:13px; line-height:1 }
+.service-order-controls button:hover:not(:disabled) { color:var(--ink); background:var(--line) }
+.workflow-power-controls button:focus-visible,.service-order-controls button:focus-visible { outline-color:var(--accent) }
 .service-icon {
   width:29px;
   height:29px;
