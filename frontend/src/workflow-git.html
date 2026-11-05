@@ -1,0 +1,24 @@
+<section class="git-workspace" aria-label="Git version management">
+  <div class="git-heading"><div><span class="eyebrow">WORKFLOW VERSION CONTROL</span><h1>Git</h1><p>Review and manage changes in {{ projectName }}.</p></div><button class="git-refresh" (click)="load()" [disabled]="loading() || busy()">↻ Refresh</button></div>
+  @if (error()) { <div class="git-notice error" role="alert">{{ error() }}<button (click)="error.set('')" aria-label="Dismiss error">×</button></div> }
+  @if (notice()) { <div class="git-notice success" role="status">{{ notice() }}</div> }
+  @if (loading() && !status()) { <div class="git-empty">Checking this workflow’s repository…</div> }
+  @else if (status(); as repo) {
+    @if (!repo.repository) {
+      <section class="git-empty"><span class="git-empty-icon">⌘</span><h2>This folder isn’t a Git repository yet.</h2><p>Initialize version control here to start tracking this workflow. Git will create a repository in its folder; your files stay in place.</p><button class="git-primary" (click)="initialize()" [disabled]="busy()">{{ busy() ? 'Setting up…' : 'Initialize Git repository' }}</button></section>
+    } @else {
+      <section class="git-summary"><div><small>BRANCH</small><strong>⑂ {{ repo.branch || 'Detached HEAD' }}</strong><span>{{ repo.upstream || 'No upstream branch' }}</span></div><div><small>CHANGES</small><strong>{{ repo.changes.length }}</strong><span>{{ repo.changes.length === 1 ? 'file to review' : 'files to review' }}</span></div><div><small>SYNC</small><strong>{{ repo.ahead }} ↑ &nbsp; {{ repo.behind }} ↓</strong><span>{{ repo.upstream ? 'ahead and behind upstream' : 'No upstream configured' }}</span></div><div class="git-remote-actions"><button (click)="pull()" [disabled]="busy() || !repo.upstream">↓ Pull</button><button (click)="push()" [disabled]="busy() || !repo.upstream">↑ Push</button></div></section>
+      <div class="git-tabs" role="tablist" aria-label="Git sections"><button role="tab" [class.selected]="section() === 'changes'" [attr.aria-selected]="section() === 'changes'" (click)="section.set('changes')">Changes <span>{{ repo.changes.length }}</span></button><button role="tab" [class.selected]="section() === 'history'" [attr.aria-selected]="section() === 'history'" (click)="section.set('history'); loadHistory()">History</button></div>
+      @if (section() === 'changes') {
+        <div class="git-workarea"><div class="git-changes"><div class="git-list-heading"><h2>Working tree</h2><span>{{ repo.changes.length }} files</span></div>
+          @for (change of repo.changes; track change.path) { <article class="git-change" [class.active]="selectedPath() === change.path"><button class="git-file" (click)="showDiff(change, staged(change) && !changed(change))"><span class="git-file-mark" [class.new]="change.untracked">{{ statusLabel(change) }}</span><code [title]="change.path">{{ change.path }}</code></button><div class="git-file-actions">@if (staged(change)) { <button (click)="showDiff(change, true)">Staged diff</button><button (click)="unstage(change)" [disabled]="busy()">Unstage</button> } @if (change.untracked || changed(change)) { <button (click)="showDiff(change, false)">Diff</button><button (click)="stage(change)" [disabled]="busy()">Stage</button> }</div></article> }
+          @if (!repo.changes.length) { <div class="git-clean">Your working tree is clean.</div> }
+          <div class="git-commit-box"><label for="git-commit-message">Commit message</label><textarea id="git-commit-message" [(ngModel)]="message" placeholder="Describe the changes you staged" maxlength="500" rows="3"></textarea><button class="git-primary" (click)="commit()" [disabled]="busy() || !message.trim() || !repo.changes.some(staged)">{{ busy() ? 'Working…' : 'Commit staged changes' }}</button><small>Only staged files are included.</small></div>
+        </div><div class="git-preview"><div class="git-preview-head"><strong>{{ selectedPath() || (commitDetail() ? 'Commit details' : 'Diff preview') }}</strong>@if (selectedPath()) { <span>{{ selectedStaged() ? 'STAGED' : 'WORKING TREE' }}</span> }</div><pre>{{ commitDetail() || diff() || 'Select a changed file to inspect its diff.' }}</pre></div></div>
+      } @else {
+        <div class="git-history">@for (commit of commits(); track commit.hash) { <button class="git-commit-row" (click)="openCommit(commit)"><code>{{ commit.shortHash }}</code><span><strong>{{ commit.subject }}</strong><small>{{ commit.author }} · {{ commit.date }}</small></span><b>›</b></button> } @if (!commits().length) { <div class="git-clean">No commits yet.</div> }</div>
+        <div class="git-preview git-history-preview"><div class="git-preview-head"><strong>Commit summary</strong></div><pre>{{ commitDetail() || 'Choose a commit to view its files and summary.' }}</pre></div>
+      }
+    }
+  }
+</section>

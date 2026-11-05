@@ -1,13 +1,15 @@
-import { Component, EventEmitter, Input, OnDestroy, OnInit, Output, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 interface Host { id: string; name: string; local: boolean }
 interface Tunnel { definition: { id: string; name: string; hostId: string; localPort: number; remoteHost: string; remotePort: number; sshAlias?: string | null }; hostName: string; state: 'running' | 'stopped' | 'error'; error: string | null }
 
 @Component({ selector: 'app-tunnels', standalone: true, imports: [FormsModule], templateUrl: './tunnels.html', styleUrl: './tunnels.css' })
-export class Tunnels implements OnInit, OnDestroy {
+export class Tunnels implements OnInit, OnDestroy, OnChanges {
   @Input() session = '';
+  @Input() createRequested = false;
   @Output() navigateHosts = new EventEmitter<void>();
+  @Output() createHandled = new EventEmitter<void>();
   tunnels = signal<Tunnel[]>([]);
   hosts = signal<Host[]>([]);
   loading = signal(true);
@@ -22,6 +24,7 @@ export class Tunnels implements OnInit, OnDestroy {
   private timer?: ReturnType<typeof setInterval>;
 
   ngOnInit() { void this.load(); this.timer = setInterval(() => void this.load(false), 2000); }
+  ngOnChanges(changes: SimpleChanges) { if (changes['createRequested']?.currentValue) { this.open(); this.createHandled.emit(); } }
   private async api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch('/api' + path, { method, signal: this.controller.signal,
       headers: { Authorization: 'Bearer ' + this.session, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },

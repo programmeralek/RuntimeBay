@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject, signal, computed } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { LoadingService } from './loading/loading.service';
@@ -10,10 +10,12 @@ interface Inventory { hostId: string; checkedAt: string; hostname: string; os: s
 interface Inspection { state: 'idle' | 'scanning' | 'ready' | 'error'; inventory: Inventory | null; error: string | null }
 
 @Component({ selector: 'app-hosts', standalone: true, imports: [FormsModule, DatePipe], templateUrl: './hosts.html' })
-export class Hosts implements OnInit, OnDestroy {
+export class Hosts implements OnInit, OnDestroy, OnChanges {
   @Input() session = '';
   @Input() terminalBusy = false;
+  @Input() createRequested = false;
   @Output() openTerminal = new EventEmitter<string>();
+  @Output() createHandled = new EventEmitter<void>();
   private tasks = inject(LoadingService).scope();
   registry = signal<Registry>({ hosts: [], defaultHostId: 'local' });
   selectedId = signal<string | null>(null);
@@ -54,6 +56,7 @@ export class Hosts implements OnInit, OnDestroy {
     window.addEventListener('keydown', this.keyListener);
     void this.load(); this.timer = setInterval(() => { if (this.selectedId() && this.status().state === 'scanning') void this.readStatus(); }, 1500);
   }
+  ngOnChanges(changes: SimpleChanges) { if (changes['createRequested']?.currentValue) { this.open(); this.createHandled.emit(); } }
   private async api<T>(path = '', method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch('/api/hosts' + path, { method, signal: this.controller.signal,
       headers: { Authorization: 'Bearer ' + this.session, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },

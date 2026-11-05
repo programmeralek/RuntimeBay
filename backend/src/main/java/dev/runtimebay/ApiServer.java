@@ -24,6 +24,7 @@ final class ApiServer implements AutoCloseable {
     private final WorkflowManifests manifests;
     private final WorkflowPlans plans;
     private final DatabaseWorkspace databases;
+    private final GitWorkspace git;
     private final MachineHosts machineHosts;
     private final Path hostSshControls;
     private final HostPasswords hostPasswords;
@@ -53,6 +54,7 @@ final class ApiServer implements AutoCloseable {
         terminals = new TerminalManager(store, supervisor.resolveSibling("runtimebay-terminal"), hostPasswords);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 32);
         databases = new DatabaseWorkspace(store, new CloudBeaverRuntime(docker), "http://127.0.0.1:" + port());
+        git = new GitWorkspace(store);
         server.setExecutor(requests);
         server.createContext("/", this::handle);
     }
@@ -88,6 +90,7 @@ final class ApiServer implements AutoCloseable {
         if (path.equals("/api/terminals") || path.startsWith("/api/terminals/")) { routeTerminals(e, parts); return; }
         if (path.equals("/api/tunnels") || path.startsWith("/api/tunnels/")) { routeTunnels(e, parts); return; }
         if (path.equals("/api/hosts") || path.startsWith("/api/hosts/")) { routeHosts(e, parts); return; }
+        if (parts.length >= 4 && parts[1].equals("projects") && parts[3].equals("git")) { routeGit(e, parts); return; }
         if (path.startsWith("/api/docker/")) { routeDocker(e, parts); return; }
         if (parts.length >= 4 && parts[1].equals("workflows") && parts[3].equals("manifest")) { routeManifest(e, parts); return; }
         if (parts.length >= 4 && parts[1].equals("workflows") && parts[3].equals("attachments")) { routeAttachments(e, parts); return; }
@@ -194,6 +197,20 @@ final class ApiServer implements AutoCloseable {
             }
         }
         throw new ApiException(404, "Endpoint not found");
+    }
+    private void routeGit(HttpExchange e, String[] parts) throws IOException {
+        String method = e.getRequestMethod(), project = parts[2];
+        if (parts.length == 4 && method.equals("GET")) { json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("init") && method.equals("POST")) { git.init(project); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("diff") && method.equals("GET")) { json(e, 200, Map.of("diff", git.diff(project, query(e, "path"), "true".equals(query(e, "staged"))))); return; }
+        if (parts.length == 5 && parts[4].equals("log") && method.equals("GET")) { json(e, 200, git.log(project)); return; }
+        if (parts.length == 6 && parts[4].equals("commit") && method.equals("GET")) { json(e, 200, Map.of("detail", git.show(project, parts[5]))); return; }
+        if (parts.length == 5 && parts[4].equals("stage") && method.equals("POST")) { git.stage(project, string(body(e), "path")); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("unstage") && method.equals("POST")) { git.unstage(project, string(body(e), "path")); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("commit") && method.equals("POST")) { git.commit(project, string(body(e), "message")); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("pull") && method.equals("POST")) { git.pull(project); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("push") && method.equals("POST")) { git.push(project); json(e, 200, git.status(project)); return; }
+        throw new ApiException(404, "Git endpoint not found");
     }
     private void routeManifest(HttpExchange e,String[] parts)throws Exception {
         String id=parts[2],method=e.getRequestMethod();store.project(id);
