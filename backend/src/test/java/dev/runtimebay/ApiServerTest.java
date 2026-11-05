@@ -36,6 +36,23 @@ class ApiServerTest {
         assertEquals(200, status(request("/api/projects").header("Authorization", "Bearer " + token)));
         assertEquals(415, status(request("/api/projects").header("Authorization", "Bearer " + token).POST(HttpRequest.BodyPublishers.ofString("{}"))));
     }
+    @Test void workflowGitRoutesInitializeAndReadRepositoryThroughTheApi() throws Exception {
+        Path folder = Files.createDirectory(temporary.resolve("git-workflow"));
+        JsonObject project = new JsonObject(); project.addProperty("name", "Git workflow"); project.addProperty("path", folder.toString());
+        var created = client.send(request("/api/projects").header("Authorization", "Bearer " + token).header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(project.toString())).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, created.statusCode());
+        String id = JsonParser.parseString(created.body()).getAsJsonObject().get("id").getAsString();
+        String git = "/api/projects/" + id + "/git";
+        var before = client.send(request(git).header("Authorization", "Bearer " + token).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, before.statusCode());
+        assertFalse(JsonParser.parseString(before.body()).getAsJsonObject().get("repository").getAsBoolean());
+        assertEquals(200, status(request(git + "/init").header("Authorization", "Bearer " + token).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}"))));
+        var after = client.send(request(git).header("Authorization", "Bearer " + token).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, after.statusCode());
+        assertTrue(JsonParser.parseString(after.body()).getAsJsonObject().get("repository").getAsBoolean());
+        assertEquals(200, status(request(git + "/log").header("Authorization", "Bearer " + token)));
+    }
     @Test void terminalApiRequiresTokenAndSupportsCreationInputResizeAndClose() throws Exception {
         assertEquals(401, status(request("/api/terminals").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}"))));
         assertEquals(403, status(request("/api/terminals").header("Authorization", "Bearer " + token).header("Origin", "https://example.com").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}"))));

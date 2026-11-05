@@ -1,4 +1,4 @@
-<section class="git-workspace" aria-label="Git version management">
+<section class="git-workspace" [hidden]="!visible" aria-label="Git version management">
   <div class="git-heading"><div><span class="eyebrow">WORKFLOW VERSION CONTROL</span><h1>Git</h1><p>Review and manage changes in {{ projectName }}.</p></div><button class="git-refresh" (click)="load()" [disabled]="loading() || busy()">↻ Refresh</button></div>
   @if (error()) { <div class="git-notice error" role="alert">{{ error() }}<button (click)="error.set('')" aria-label="Dismiss error">×</button></div> }
   @if (notice()) { <div class="git-notice success" role="status">{{ notice() }}</div> }

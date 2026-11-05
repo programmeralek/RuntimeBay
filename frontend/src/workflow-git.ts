@@ -40,7 +40,12 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     const response = await fetch('/api' + path, { method, signal: this.controller?.signal,
       headers: { Authorization: 'Bearer ' + this.session, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    const value = await response.json(); if (!response.ok) throw new Error(value.error || 'Git could not complete that action'); return value as T;
+    const value = await response.json();
+    if (!response.ok) {
+      if (response.status === 404 && value.error === 'Endpoint not found') throw new Error('This window is using an older Runtime Bay engine. Quit and reopen the updated app to enable Git. Quitting disconnects active terminals and tunnels.');
+      throw new Error(value.error || 'Git could not complete that action');
+    }
+    return value as T;
   }
   async load(showLoading = true) {
     const revision = this.revision; this.controller?.abort(); this.controller = new AbortController();
