@@ -12,7 +12,7 @@ import java.util.concurrent.*;
 /** Saved SSH local-forward profiles. Credentials remain in the host credential store. */
 final class SshTunnels implements AutoCloseable {
     record Definition(String id, String name, String hostId, int localPort, String remoteHost, int remotePort, String sshAlias) {}
-    record View(Definition definition, String hostName, String state, String error, boolean unreadError) {}
+    record View(Definition definition, String hostName, String state, String error, boolean unreadError, boolean external) {}
     private record Saved(int version, List<Definition> tunnels, Map<String, String> errors, Set<String> unreadErrors) {}
     private static final class Live {
         final Process process;
@@ -28,15 +28,23 @@ final class SshTunnels implements AutoCloseable {
     private final Map<String, Live> live = new HashMap<>();
     private final Map<String, String> errors = new HashMap<>();
     private final Set<String> unreadErrors = new LinkedHashSet<>();
+    private final Set<String> recovered = new HashSet<>();
+    private final java.util.function.Supplier<List<TunnelDiscovery.SshProcess>> discovery;
+    private long lastProbe;
     private final ExecutorService readers = Executors.newVirtualThreadPerTaskExecutor();
     private boolean closed;
 
     SshTunnels(Path directory, MachineHosts hosts, HostPasswords passwords, Path controls) throws IOException {
+        this(directory, hosts, passwords, controls, TunnelDiscovery::snapshot);
+    }
+    SshTunnels(Path directory, MachineHosts hosts, HostPasswords passwords, Path controls, java.util.function.Supplier<List<TunnelDiscovery.SshProcess>> discovery) throws IOException {
         this.file = directory.resolve("tunnels.json"); this.hosts = hosts; this.passwords = passwords; this.controls = controls;
+        this.discovery = discovery;
         load();
     }
 
     synchronized List<View> list() {
+        reconcile();
         return definitions.values().stream().map(this::view).toList();
     }
 
@@ -70,6 +78,8 @@ final class SshTunnels implements AutoCloseable {
 
     synchronized void remove(String id) throws IOException {
         Definition old = require(id);
+        reconcile();
+        if (recovered.contains(id)) throw new ApiException(409, "This tunnel is active in another session. Stop it there before removing its profile.");
         String oldError = errors.get(id);
         boolean wasUnread = unreadErrors.contains(id);
         stopProcess(id);
@@ -92,6 +102,8 @@ final class SshTunnels implements AutoCloseable {
 
     synchronized View start(String id) {
         Definition definition = require(id);
+        reconcile();
+        if (recovered.contains(id)) return view(definition);
         if (closed) throw new ApiException(503, "Tunnels are shutting down");
         Live existing = live.get(id);
         if (existing != null && existing.process.isAlive()) return view(definition);
@@ -124,6 +136,8 @@ final class SshTunnels implements AutoCloseable {
 
     synchronized View stop(String id) {
         Definition definition = require(id);
+        reconcile();
+        if (recovered.contains(id)) throw new ApiException(409, "This tunnel is active in another session. Stop it from the session that started it.");
         stopProcess(id);
         return view(definition);
     }
@@ -148,14 +162,36 @@ final class SshTunnels implements AutoCloseable {
 
     private synchronized View view(Definition definition) {
         Live process = live.get(definition.id());
-        String state = process == null ? errors.containsKey(definition.id()) ? "error" : "stopped" : process.process.isAlive() ? "running" : "error";
-        return new View(definition, hosts.get(definition.hostId()).name(), state, process == null ? errors.get(definition.id()) : process.error, unreadErrors.contains(definition.id()));
+        boolean external = recovered.contains(definition.id());
+        String state = external ? "running" : process == null ? errors.containsKey(definition.id()) ? "error" : "stopped" : process.process.isAlive() ? "running" : "error";
+        return new View(definition, hosts.get(definition.hostId()).name(), state, external ? null : process == null ? errors.get(definition.id()) : process.error, unreadErrors.contains(definition.id()), external);
     }
     synchronized void recordFailure(String id, String message) {
         errors.put(id, message); unreadErrors.add(id);
         try { persist(); } catch (IOException ignored) { /* Keep the failure visible for this app session. */ }
     }
-    private boolean isRunning(String id) { Live value = live.get(id); return value != null && value.process.isAlive(); }
+    private boolean isRunning(String id) { reconcile(); Live value = live.get(id); return recovered.contains(id) || value != null && value.process.isAlive(); }
+    private void reconcile() {
+        if (closed || definitions.isEmpty() || System.nanoTime() - lastProbe < TimeUnit.SECONDS.toNanos(3)) return;
+        lastProbe = System.nanoTime();
+        var processes = discovery.get();
+        if (processes == null) return; // A failed probe must not turn active forwards into failures.
+        boolean changed = false;
+        for (Definition definition : definitions.values()) {
+            String id = definition.id();
+            Live owned = live.get(id);
+            if (owned != null && owned.process.isAlive()) continue;
+            if (TunnelDiscovery.matches(definition, hosts.get(definition.hostId()), processes)) {
+                recovered.add(id);
+                changed |= errors.remove(id) != null;
+                changed |= unreadErrors.remove(id);
+            } else if (recovered.remove(id)) {
+                errors.put(id, "The SSH forward detected in another session is no longer listening.");
+                unreadErrors.add(id); changed = true;
+            }
+        }
+        if (changed) try { persist(); } catch (IOException ignored) { /* Keep reconciliation visible for this session. */ }
+    }
     private Definition require(String id) { Definition value = definitions.get(id); if (value == null) throw new ApiException(404, "Tunnel not found"); return value; }
     private void stopProcess(String id) {
         Live value = live.remove(id); if (value == null) return;

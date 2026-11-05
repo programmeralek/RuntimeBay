@@ -2,7 +2,7 @@ import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, S
 import { FormsModule } from '@angular/forms';
 
 interface Host { id: string; name: string; local: boolean }
-interface Tunnel { definition: { id: string; name: string; hostId: string; localPort: number; remoteHost: string; remotePort: number; sshAlias?: string | null }; hostName: string; state: 'running' | 'stopped' | 'error'; error: string | null }
+interface Tunnel { definition: { id: string; name: string; hostId: string; localPort: number; remoteHost: string; remotePort: number; sshAlias?: string | null }; hostName: string; state: 'running' | 'stopped' | 'error'; error: string | null; external: boolean }
 
 @Component({ selector: 'app-tunnels', standalone: true, imports: [FormsModule], templateUrl: './tunnels.html', styleUrl: './tunnels.css' })
 export class Tunnels implements OnInit, OnDestroy, OnChanges {

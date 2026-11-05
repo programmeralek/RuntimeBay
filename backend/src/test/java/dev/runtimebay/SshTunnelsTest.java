@@ -8,11 +8,41 @@ import org.junit.jupiter.api.io.TempDir;
 class SshTunnelsTest {
     @TempDir Path temporary;
 
+    @Test void recoversVerifiedForwardAfterReloadWithoutStartingOrTakingOwnership() throws Exception {
+        var registry = new HostRegistry(temporary);
+        var host = registry.save(null, "Helfer", "helfer", "alek", 22);
+        var hosts = new MachineHosts(registry, new HostTools());
+        var first = new SshTunnels(temporary, hosts, null, temporary, java.util.List::of);
+        var saved = first.save(null, "Processor", host.id(), 18098, "localhost", 8098, "helfer-remote");
+        first.recordFailure(saved.definition().id(), "Address already in use"); first.close();
+        var client = new TunnelDiscovery.SshProcess(100, java.util.List.of("-N", "-L", "127.0.0.1:18098:localhost:8098", "--", "helfer-remote"), java.util.Set.of(18098), -1);
+        var reopened = new SshTunnels(temporary, hosts, null, temporary, () -> java.util.List.of(client));
+        var recovered = reopened.list().getFirst();
+        assertEquals("running", recovered.state()); assertTrue(recovered.external()); assertNull(recovered.error()); assertFalse(recovered.unreadError());
+        assertEquals(recovered, reopened.start(saved.definition().id()));
+        assertThrows(ApiException.class, () -> reopened.stop(saved.definition().id()));
+        reopened.close(); hosts.close();
+    }
+
+    @Test void detectionRequiresExactDestinationRouteAndVerifiedListenerIncludingMultiplexedMaster() {
+        var host = new HostRegistry.Host("host-id", "Helfer", "helfer", "alek", 22, false);
+        var definition = new SshTunnels.Definition("id", "UI", host.id(), 8099, "localhost", 8099, "helfer-remote");
+        var args = java.util.List.of("-N", "-L", "127.0.0.1:8099:localhost:8099", "--", "helfer-remote");
+        assertFalse(TunnelDiscovery.matches(definition, host, java.util.List.of(new TunnelDiscovery.SshProcess(10, args, java.util.Set.of(), -1))));
+        assertTrue(TunnelDiscovery.matches(definition, host, java.util.List.of(new TunnelDiscovery.SshProcess(10, args, java.util.Set.of(8099), -1))));
+        var wrong = new TunnelDiscovery.SshProcess(10, java.util.List.of("-N", "-L", "8099:localhost:8000", "other-host"), java.util.Set.of(8099), -1);
+        assertFalse(TunnelDiscovery.matches(definition, host, java.util.List.of(wrong)));
+        var client = new TunnelDiscovery.SshProcess(10, args, java.util.Set.of(), 20);
+        var master = new TunnelDiscovery.SshProcess(20, java.util.List.of("-N", "helfer-remote"), java.util.Set.of(8099), -1);
+        assertTrue(TunnelDiscovery.matches(definition, host, java.util.List.of(client, master)));
+        assertFalse(TunnelDiscovery.matches(definition, host, java.util.List.of(new TunnelDiscovery.SshProcess(10, args, java.util.Set.of(), 99), master)));
+    }
+
     @Test void savedForwardingProfilesSurviveReloadAndKeepTheirHostBinding() throws Exception {
         var registry = new HostRegistry(temporary);
         var host = registry.save(null, "Helfer", "helfer", "alek", 22);
         var hosts = new MachineHosts(registry, new HostTools());
-        var tunnels = new SshTunnels(temporary, hosts, null, temporary);
+        var tunnels = new SshTunnels(temporary, hosts, null, temporary, java.util.List::of);
         var saved = tunnels.save(null, "Gobble MySQL", host.id(), 13306, "localhost", 3306, "helfer-remote");
         assertEquals("stopped", saved.state());
         assertEquals("Gobble MySQL", tunnels.list().getFirst().definition().name());
@@ -20,7 +50,7 @@ class SshTunnelsTest {
         assertThrows(ApiException.class, () -> tunnels.requireUnusedHost(host.id()));
         tunnels.close();
 
-        var restored = new SshTunnels(temporary, hosts, null, temporary);
+        var restored = new SshTunnels(temporary, hosts, null, temporary, java.util.List::of);
         assertEquals(saved.definition(), restored.list().getFirst().definition());
         assertEquals("helfer-remote", restored.list().getFirst().definition().sshAlias());
         assertEquals("Helfer", restored.list().getFirst().hostName());
@@ -48,7 +78,7 @@ class SshTunnelsTest {
         var registry = new HostRegistry(temporary);
         var host = registry.save(null, "Helfer", "helfer", "alek", 22);
         var hosts = new MachineHosts(registry, new HostTools());
-        var tunnels = new SshTunnels(temporary, hosts, null, temporary);
+        var tunnels = new SshTunnels(temporary, hosts, null, temporary, java.util.List::of);
         var saved = tunnels.save(null, "Processor", host.id(), 18098, "localhost", 8098, "helfer-remote");
 
         tunnels.recordFailure(saved.definition().id(), "Broken pipe");
@@ -57,13 +87,13 @@ class SshTunnelsTest {
         assertTrue(failed.unreadError());
         tunnels.close();
 
-        var restored = new SshTunnels(temporary, hosts, null, temporary);
+        var restored = new SshTunnels(temporary, hosts, null, temporary, java.util.List::of);
         assertTrue(restored.list().getFirst().unreadError());
         assertEquals("Broken pipe", restored.list().getFirst().error());
         restored.acknowledgeErrors();
         assertFalse(restored.list().getFirst().unreadError());
         restored.close();
-        var acknowledged = new SshTunnels(temporary, hosts, null, temporary);
+        var acknowledged = new SshTunnels(temporary, hosts, null, temporary, java.util.List::of);
         assertFalse(acknowledged.list().getFirst().unreadError());
         assertEquals("error", acknowledged.list().getFirst().state());
         acknowledged.close(); hosts.close();
