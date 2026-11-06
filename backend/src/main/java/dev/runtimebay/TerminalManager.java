@@ -101,9 +101,27 @@ final class TerminalManager implements AutoCloseable {
         try { return gson.fromJson(Files.readString(shell.assistFile), AssistState.class); }
         catch (IOException | RuntimeException ignored) { return null; }
     }
+    synchronized String editorRequest(String id) throws IOException {
+        Shell shell = shell(id);
+        if (!shell.hostId.equals("local") || shell.assistDirectory == null) return null;
+        Path queue = shell.assistDirectory.resolve("editor");
+        try (var entries = Files.list(queue)) {
+            var request = entries.filter(path -> path.getFileName().toString().startsWith("request-") && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)).sorted().findFirst();
+            if (request.isEmpty()) return null;
+            Path file = request.get();
+            try {
+                if (Files.size(file) > 16384) throw new ApiException(400, "Editor request is too large");
+                String path = gson.fromJson(Files.readString(file), String.class);
+                if (path == null || !Path.of(path).isAbsolute()) throw new ApiException(400, "Invalid editor file path");
+                return path;
+            } finally { Files.deleteIfExists(file); }
+        }
+    }
     private static Path installZshAssist(ProcessBuilder builder) throws IOException {
         Path directory = Files.createTempDirectory("rb-assist-");
         try {
+            Path editorDirectory = Files.createDirectory(directory.resolve("editor"));
+            builder.environment().put("RUNTIMEBAY_EDITOR_DIR", editorDirectory.toString());
             Path config = Files.createDirectory(directory.resolve("config"));
             Path script = directory.resolve("runtimebay-assist.zsh");
             try (InputStream resource = TerminalManager.class.getResourceAsStream("/dev/runtimebay/runtimebay-zsh-assist.zsh")) {

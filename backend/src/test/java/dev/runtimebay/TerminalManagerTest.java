@@ -18,6 +18,21 @@ class TerminalManagerTest {
         terminals = new TerminalManager(store, launcher);
     }
     @AfterEach void close() { terminals.close(); }
+    @Test void plainNanoRequestsEditorUsingActualCwdAndLiteralFilename() throws Exception {
+        var project = store.addProject("Editor fixture", temporary.toString());
+        Files.createDirectory(temporary.resolve("child"));
+        Path bin = Files.createDirectory(temporary.resolve("bin"));
+        Path fakeNano = bin.resolve("nano"); Files.writeString(fakeNano, "#!/bin/sh\nprintf 'NATIVE_NANO:%s\\n' \"$*\"\n"); fakeNano.toFile().setExecutable(true);
+        var shell = terminals.create(project.id());
+        terminals.input(shell.id(), "export PATH='" + bin + "':$PATH; cd child; nano 'a spaced;$(literal).txt'; printf '\\nEDITOR_READY:%s\\n' yes\n");
+        await(shell.id(), "EDITOR_READY:yes");
+        assertEquals(temporary.toRealPath().resolve("child/a spaced;$(literal).txt").toString(), terminals.editorRequest(shell.id()));
+        assertNull(terminals.editorRequest(shell.id()));
+        terminals.input(shell.id(), "nano --version; printf '\\nNANO_FLAGS:%s\\n' yes\n");
+        assertTrue(await(shell.id(), "NANO_FLAGS:yes").contains("NATIVE_NANO:--version")); assertNull(terminals.editorRequest(shell.id()));
+        terminals.input(shell.id(), "printf '' | nano --version; printf '\\nNANO_PIPE:%s\\n' yes\n");
+        await(shell.id(), "NANO_PIPE:yes"); assertNull(terminals.editorRequest(shell.id()));
+    }
     @Test void ptySupervisorExecutesAnExplicitProgramWithoutAShellWrapper() throws Exception {
         Path launcher = Path.of(System.getenv().getOrDefault("RUNTIMEBAY_LAUNCHER", "../.build/runtimebay-launcher")).resolveSibling("runtimebay-terminal");
         Process process = new ProcessBuilder(launcher.toString(), "/usr/bin/printf", "%s", "HOST_PTY_LITERAL;$(not-executed)").start();

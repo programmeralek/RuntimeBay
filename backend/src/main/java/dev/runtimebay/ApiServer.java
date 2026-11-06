@@ -25,6 +25,7 @@ final class ApiServer implements AutoCloseable {
     private final WorkflowPlans plans;
     private final DatabaseWorkspace databases;
     private final GitWorkspace git;
+    private final EditorFiles editor;
     private final MachineHosts machineHosts;
     private final Path hostSshControls;
     private final HostPasswords hostPasswords;
@@ -55,6 +56,7 @@ final class ApiServer implements AutoCloseable {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 32);
         databases = new DatabaseWorkspace(store, new CloudBeaverRuntime(docker), "http://127.0.0.1:" + port());
         git = new GitWorkspace(store);
+        editor = new EditorFiles(store);
         server.setExecutor(requests);
         server.createContext("/", this::handle);
     }
@@ -87,6 +89,7 @@ final class ApiServer implements AutoCloseable {
     private void route(HttpExchange e, String path) throws Exception {
         String method = e.getRequestMethod();
         String[] parts = path.substring(1).split("/");
+        if (parts.length >= 3 && parts[1].equals("editor")) { routeEditor(e, parts); return; }
         if (path.equals("/api/terminals") || path.startsWith("/api/terminals/")) { routeTerminals(e, parts); return; }
         if (path.equals("/api/tunnels") || path.startsWith("/api/tunnels/")) { routeTunnels(e, parts); return; }
         if (path.equals("/api/hosts") || path.startsWith("/api/hosts/")) { routeHosts(e, parts); return; }
@@ -211,6 +214,16 @@ final class ApiServer implements AutoCloseable {
         if (parts.length == 5 && parts[4].equals("pull") && method.equals("POST")) { git.pull(project); json(e, 200, git.status(project)); return; }
         if (parts.length == 5 && parts[4].equals("push") && method.equals("POST")) { git.push(project); json(e, 200, git.status(project)); return; }
         throw new ApiException(404, "Git endpoint not found");
+    }
+    private void routeEditor(HttpExchange e, String[] parts) throws IOException {
+        String method = e.getRequestMethod();
+        if (parts.length == 3 && parts[2].equals("open") && method.equals("POST")) {
+            var value = body(e); json(e, 200, editor.open(string(value, "projectId"), string(value, "path"))); return;
+        }
+        if (parts.length == 3 && parts[2].equals("tree") && method.equals("GET")) { json(e, 200, editor.tree(query(e, "projectId"), query(e, "path"))); return; }
+        if (parts.length == 3 && method.equals("GET")) { json(e, 200, editor.reload(parts[2])); return; }
+        if (parts.length == 3 && method.equals("PUT")) { var value = body(e); json(e, 200, editor.save(parts[2], string(value, "version"), string(value, "content"))); return; }
+        throw new ApiException(404, "Editor endpoint not found");
     }
     private void routeManifest(HttpExchange e,String[] parts)throws Exception {
         String id=parts[2],method=e.getRequestMethod();store.project(id);
@@ -349,6 +362,7 @@ final class ApiServer implements AutoCloseable {
                 return;
             }
             if (parts[3].equals("assist") && method.equals("GET")) { json(e, 200, terminals.assist(id)); return; }
+            if (parts[3].equals("editor") && method.equals("GET")) { String filename = terminals.editorRequest(id); json(e, 200, filename == null ? null : editor.open(null, filename)); return; }
             if (parts[3].equals("input") && method.equals("POST")) { terminals.input(id, string(body(e), "data")); json(e, 200, Map.of("ok", true)); return; }
             if (parts[3].equals("resize") && method.equals("POST")) {
                 JsonObject value = body(e);

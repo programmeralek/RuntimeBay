@@ -22,7 +22,7 @@ export class TerminalWorkspace {
       headers: { Authorization: 'Bearer ' + this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Could not connect to this terminal');
+    if (!response.ok) throw Object.assign(new Error(result.error || 'Could not connect to this terminal'), {status: response.status});
     return result;
   }
   private async restore() {
@@ -64,7 +64,7 @@ export class TerminalWorkspace {
   destroy() { this.controller.abort(); }
 }
 interface AssistState { buffer: string; cursor: number; cwd: string; command: string; recognized: boolean; commands: string[]; paths: string[]; options: string[] }
-interface Renderer { terminal: Terminal; fit: FitAddon; element: HTMLElement; abort: AbortController; next: number; input: Promise<void>; queued: number; exited: boolean }
+interface Renderer { terminal: Terminal; fit: FitAddon; element: HTMLElement; abort: AbortController; next: number; input: Promise<void>; queued: number; exited: boolean; editorSupported?: boolean }
 
 @Component({
   selector: 'app-terminals', standalone: true,
@@ -279,6 +279,12 @@ export class Terminals implements AfterViewInit, OnDestroy {
         try {
           const state=await this.workspace().api<AssistState|null>('/'+id+'/assist','GET',undefined,renderer.abort.signal);
           if(state&&this.workspace().selected()===id){this.assistantTabId=id;this.assist.set(state);}
+          if(renderer.editorSupported !== false) {
+            try {
+              const document=await this.workspace().api<unknown|null>('/'+id+'/editor','GET',undefined,renderer.abort.signal);
+              if(document) window.dispatchEvent(new CustomEvent('runtimebay:edit', {detail:document}));
+            } catch(error) { if((error as Error & {status?:number}).status === 404) renderer.editorSupported=false; else throw error; }
+          }
         } catch(error) { if(!renderer.abort.signal.aborted)this.workspace().error.set((error as Error).message); }
       }
       await new Promise<void>(resolve=>setTimeout(resolve,250));

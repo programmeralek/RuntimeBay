@@ -2,6 +2,12 @@
 
 Runtime Bay's original Java, Angular, Swift, Go, and C source is licensed under the [MIT License](LICENSE). Third-party code and artwork retain the licenses below. This inventory was updated on 2026-10-22 against `package.json`, `package-lock.json`, installed package license files, `backend/pom.xml`, the shaded backend JAR, generated frontend notices, logo provenance, and the packaged Java runtime.
 
+## Integrated editor additions (2026-11-06)
+
+The integrated editor uses CodeMirror 6.0.2 and its pinned `@codemirror` state, view, command, language, autocomplete, lint and search packages, plus their Lezer parsers and small rendering/input dependencies. These are MIT-licensed. The `yaml` 2.9.1 document parser is ISC-licensed and supplies YAML syntax validation and source ranges for structured editing. Runtime Bay does not replace or relicense either project.
+
+[Editor dependency inventory](licenses/editor/README.md) records every newly added direct/transitive package, its exact pinned version and its unchanged upstream license text. All of those files are copied into the macOS bundle's `Resources/licenses/editor/` directory; Angular's generated third-party bundle notices are also included. Primary documentation: [CodeMirror](https://codemirror.net/docs/) and [yaml](https://eemeli.org/yaml/).
+
 ## Code and artwork shipped in the macOS app
 
 | Component | Version | Use | License text | Upstream |

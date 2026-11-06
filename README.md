@@ -27,6 +27,19 @@ Start a project. Follow its output. Find the port. Restart the right process. Ke
 
 ---
 
+
+## Integrated editor
+
+Each workflow has an **Editor** tab with a folder browser, file tabs, and an open/create path field. The editor uses [CodeMirror](https://codemirror.net/) rather than a custom editing engine. It provides standard arrow and Shift/Command selection, undo/redo, find/replace, syntax highlighting for YAML, JavaScript/TypeScript, JSON and Python, visible whitespace, Tab indentation, and **Command-S** to save. Open documents keep their edits and undo history while switching tabs or workflow views.
+
+- In a **new local interactive Zsh terminal**, `nano file.txt` opens the file in Runtime Bay using that terminal's actual working directory. The shell returns immediately; saving happens in the editor. Quoted paths and spaces work. `command nano file.txt`, nano options/multiple arguments, pipelines and remote SSH terminals retain the terminal editor. Previously opened shells need a fresh terminal to load the integration.
+- YAML has **Source** and **Values** modes. Values presents scalar paths, including nested maps, sequences and multiple documents, with type-aware inputs. Edits replace the selected scalar rather than reformatting the entire document. YAML syntax is checked before saving. Complex keys, aliases, multiline blocks and very large integers remain editable in Source.
+- `.env` Values mode offers an editable key/value table with values masked until revealed. Existing comments, duplicate keys, `export` prefixes, quoting, whitespace and line endings are retained where possible. Multiline values stay in Source. Structured edits share the editor's undo history.
+- Files must be regular UTF-8 text, at most 2 MiB. Workflow browsing and relative paths stay within that workflow; an explicit terminal request can open an absolute local path under the user's existing OS permissions. Remote file editing is not implemented.
+- Saves check the revision read from disk, reject conflicting external changes, preserve existing POSIX permissions and replace files atomically. New files start private (`0600`). Reload explicitly confirms discarding unsaved edits. Closing an editor tab, native window, or quitting the rebuilt app warns about unsaved changes. Buffers are held in memory, not persisted as drafts.
+
+The editor is loaded on demand. Reopen the updated app to load its new backend and native unsaved-change safeguards; rebuilding does not restart a currently running session or its tunnels.
+
 ## The product
 
 Development often means a scattered collection of terminal tabs, running servers, container dashboards, and remote connections. Runtime Bay brings the runtime work into one native Mac application, with projects as the starting point.

@@ -36,6 +36,19 @@ class ApiServerTest {
         assertEquals(200, status(request("/api/projects").header("Authorization", "Bearer " + token)));
         assertEquals(415, status(request("/api/projects").header("Authorization", "Bearer " + token).POST(HttpRequest.BodyPublishers.ofString("{}"))));
     }
+    @Test void editorApiAuthenticatesOpensAndProtectsAgainstStaleSaves() throws Exception {
+        Path file = temporary.resolve("editor-file.txt"); Files.writeString(file, "initial");
+        JsonObject open = new JsonObject(); open.addProperty("path", file.toString());
+        assertEquals(401, status(request("/api/editor/open").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(open.toString()))));
+        var response = client.send(request("/api/editor/open").header("Authorization", "Bearer " + token).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(open.toString())).build(), HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, response.statusCode());
+        var document = JsonParser.parseString(response.body()).getAsJsonObject();
+        JsonObject save = new JsonObject(); save.addProperty("version", document.get("version").getAsString()); save.addProperty("content", "updated");
+        String path = "/api/editor/" + document.get("id").getAsString();
+        assertEquals(200, status(request(path).header("Authorization", "Bearer " + token).header("Content-Type", "application/json").PUT(HttpRequest.BodyPublishers.ofString(save.toString()))));
+        assertEquals("updated", Files.readString(file));
+        assertEquals(409, status(request(path).header("Authorization", "Bearer " + token).header("Content-Type", "application/json").PUT(HttpRequest.BodyPublishers.ofString(save.toString()))));
+    }
     @Test void workflowGitRoutesInitializeAndReadRepositoryThroughTheApi() throws Exception {
         Path folder = Files.createDirectory(temporary.resolve("git-workflow"));
         JsonObject project = new JsonObject(); project.addProperty("name", "Git workflow"); project.addProperty("path", folder.toString());

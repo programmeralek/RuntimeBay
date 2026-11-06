@@ -3,8 +3,9 @@ import WebKit
 import Security
 import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, NSMenuItemValidation {
     private var workspaceWindows: [ObjectIdentifier: (window: NSWindow, webView: WKWebView)] = [:]
+    private var dirtyEditors: Set<ObjectIdentifier> = []
     var window: NSWindow? { NSApp.keyWindow ?? workspaceWindows.values.first?.window }
     var webView: WKWebView? {
         if let keyWindow = NSApp.keyWindow, let workspace = workspaceWindows[ObjectIdentifier(keyWindow)] { return workspace.webView }
@@ -46,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         workspaceView.pageZoom = Double(zoomPercent) / 100
         workspaceView.autoresizingMask = [.width, .height]
         workspaceView.navigationDelegate = self
+        workspaceView.uiDelegate = self
         window.contentView = workspaceView
         window.delegate = self
         workspaceWindows[ObjectIdentifier(window)] = (window, workspaceView)
@@ -91,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         main.addItem(item)
         let file = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(commandItem("Import Workflow…", #selector(importWorkflow), "o"))
+        fileMenu.addItem(commandItem("New…", #selector(importWorkflow), "o"))
         fileMenu.addItem(commandItem("New Window", #selector(newWindow), "n", [.command, .shift]))
         fileMenu.addItem(commandItem("New Terminal", #selector(newTerminal), "t"))
         fileMenu.addItem(.separator())
@@ -173,14 +175,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func previousTerminal() { workspaceCommand("previous-terminal") }
     @objc func nextTerminal() { workspaceCommand("next-terminal") }
     @objc func reloadWorkspace() {
-        webView?.evaluateJavaScript("Boolean(document.querySelector('.loading-overlay'))") { result, _ in
-            if result as? Bool != true { self.webView?.reload() }
+        guard let target = webView else { return }
+        if let window = target.window, dirtyEditors.contains(ObjectIdentifier(window)) && !confirmDiscardEdits() { return }
+        target.evaluateJavaScript("Boolean(document.querySelector('.loading-overlay'))") { result, _ in
+            if result as? Bool != true { target.reload() }
         }
     }
     @objc func customizeAppearance() { webView?.evaluateJavaScript("window.dispatchEvent(new Event('runtimebay:customize'))") }
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
+        dirtyEditors.remove(ObjectIdentifier(window))
         workspaceWindows.removeValue(forKey: ObjectIdentifier(window))
+    }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        return quitting || !dirtyEditors.contains(ObjectIdentifier(sender)) || confirmDiscardEdits()
+    }
+    private func confirmDiscardEdits() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Discard unsaved editor changes?"
+        alert.informativeText = "Save your files before closing if you want to keep these changes."
+        alert.addButton(withTitle: "Keep editing")
+        alert.addButton(withTitle: "Discard changes")
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert(); alert.messageText = message
+        alert.addButton(withTitle: "OK"); alert.addButton(withTitle: "Cancel")
+        completionHandler(alert.runModal() == .alertFirstButtonReturn)
     }
     func startBackend() {
         do {
@@ -257,6 +278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, let url = message.frameInfo.request.url,
               let origin = origin, url.absoluteString.hasPrefix(origin + "/") else { return }
+        if let value = message.body as? [String: String], value["action"] == "editorDirty", let window = message.webView?.window {
+            if value["dirty"] == "true" { dirtyEditors.insert(ObjectIdentifier(window)) }
+            else { dirtyEditors.remove(ObjectIdentifier(window)) }
+            return
+        }
         if let value = message.body as? [String: String], value["action"] == "appearance" {
             switch value["mode"] {
             case "light": NSApp.appearance = NSAppearance(named: .aqua)
@@ -306,6 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitting { return .terminateNow }
+        if !dirtyEditors.isEmpty && !confirmDiscardEdits() { return .terminateCancel }
         quitting = true
         guard let process = backend, process.isRunning else { return .terminateNow }
         process.terminate()

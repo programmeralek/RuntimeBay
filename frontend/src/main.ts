@@ -10,6 +10,7 @@ import { Environments } from './environments';
 import { WorkflowContainers } from './workflow-containers';
 import { Databases } from './databases';
 import { WorkflowGit } from './workflow-git';
+import { Editor, type EditorDocument } from './editor';
 import { Containers } from './containers';
 import { Hosts } from './hosts';
 import { Tunnels } from './tunnels';
@@ -23,11 +24,13 @@ if (location.hash) history.replaceState(null, '', location.pathname);
 interface TunnelStatus { definition: { id: string; name: string }; state: 'running' | 'stopped' | 'error'; error: string | null; unreadError: boolean }
 
 @Component({
-  selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe, Containers, Hosts, Tunnels, Terminals, WorkflowContainers, Databases, WorkflowGit, Environments, Attachments, WorkflowYaml],
+  selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe, Containers, Hosts, Tunnels, Terminals, WorkflowContainers, Databases, WorkflowGit, Editor, Environments, Attachments, WorkflowYaml],
   templateUrl: './app.html'
 })
 class App implements OnDestroy {
-  view = signal<'runtime' | 'containers' | 'hosts' | 'tunnels' | 'terminal' | 'workflow-terminal' | 'databases' | 'git'>('runtime');
+  view = signal<'runtime' | 'containers' | 'hosts' | 'tunnels' | 'terminal' | 'workflow-terminal' | 'databases' | 'git' | 'editor'>('runtime');
+  pendingEditorDocument = signal<EditorDocument | null>(null);
+  private editorListener = (event: Event) => { this.pendingEditorDocument.set((event as CustomEvent<EditorDocument>).detail); this.openEditor(); };
   readonly loader = inject(LoadingService);
   private loadingTasks = this.loader.scope();
   readonly appearance = new Appearance(session, this.loader);
@@ -122,6 +125,7 @@ class App implements OnDestroy {
         setTimeout(() => (document.querySelector<HTMLElement>('.modal input, .modal textarea') || document.querySelector<HTMLElement>('.modal button'))?.focus(), 0);
       } else this.returnFocus?.focus();
     });
+    window.addEventListener('runtimebay:edit', this.editorListener);
     window.addEventListener('runtimebay:folder', this.folderListener);
     window.addEventListener('keydown', this.keyListener);
     window.addEventListener('runtimebay:command', this.commandListener);
@@ -132,6 +136,7 @@ class App implements OnDestroy {
   }
   ngOnDestroy() {
     this.terminals.destroy(); this.loadingTasks.close(); this.appearance.destroy(); this.destroyed = true; this.controller.abort(); clearInterval(this.timer); clearInterval(this.tunnelTimer);
+    window.removeEventListener('runtimebay:edit', this.editorListener);
     window.removeEventListener('runtimebay:folder', this.folderListener);
     window.removeEventListener('keydown', this.keyListener);
     window.removeEventListener('runtimebay:command', this.commandListener);
@@ -232,7 +237,7 @@ class App implements OnDestroy {
   async openHostTerminal(hostId: string) { this.view.set('terminal'); await this.terminals.create(null, hostId); }
   selectTerminal(id: string) { this.terminals.selected.set(id); this.view.set('terminal'); }
   selectProject(id: string | null, switchView = true) {
-    if (switchView && !['databases', 'git'].includes(this.view())) this.view.set('runtime');
+    if (switchView && !['databases', 'git', 'editor'].includes(this.view())) this.view.set('runtime');
     this.projectId.set(id); this.selectService(this.project()?.services[0]?.id || null);
   }
   selectService(id: string | null) {
@@ -278,6 +283,7 @@ class App implements OnDestroy {
     finally { this.workflowOperation.set(false); }
   }
   openProject() { this.view.set('runtime'); this.projectForm = { name: '', path: '' }; this.formError.set(''); this.sheet.set('project'); }
+  openEditor() { this.terminals.fullscreen.set(false); this.view.set('editor'); }
   openNew() { this.sheet.set('new'); }
   newWorkflow() { this.sheet.set(null); this.openProject(); }
   newHost() { this.sheet.set(null); this.hostCreateRequested.set(true); this.view.set('hosts'); }

@@ -286,7 +286,8 @@ function _runtimebay_assist_redraw() {
     else
       glob="$PWD/$token*"
     fi
-    path_matches=( ${~glob}(N) )
+    local path_prefix=${glob%\*}
+    path_matches=( "$path_prefix"*(N) )
     local path_count=0 path_display
     for candidate in "${path_matches[@]}"; do
       if [[ "$command_name" == cd || "$command_name" == pushd ]]; then
@@ -369,4 +370,21 @@ function _runtimebay_assist_redraw() {
 
 if [[ -o interactive ]]; then
   add-zle-hook-widget line-pre-redraw _runtimebay_assist_redraw
+fi
+
+# Only a plain local interactive invocation is redirected. Flags, pipelines,
+# remote shells, and `command nano` retain the normal terminal editor.
+if [[ -o interactive && -n ${RUNTIMEBAY_EDITOR_DIR-} && -d $RUNTIMEBAY_EDITOR_DIR ]] && (( ! ${+functions[nano]} )); then
+  function nano() {
+    if (( $# == 1 )) && [[ $1 != -* && -t 0 && -t 1 ]]; then
+      local filename=${1:a} request payload
+      _runtimebay_assist_json_quote "$filename"; payload=$REPLY
+      request=$(/usr/bin/mktemp "$RUNTIMEBAY_EDITOR_DIR/.pending.XXXXXXXX") || { command nano "$@"; return; }
+      print -rn -- "$payload" >| "$request"
+      /bin/mv -- "$request" "$RUNTIMEBAY_EDITOR_DIR/request-${request:t}"
+      print -r -- "Opened in Runtime Bay editor: $filename"
+    else
+      command nano "$@"
+    fi
+  }
 fi
