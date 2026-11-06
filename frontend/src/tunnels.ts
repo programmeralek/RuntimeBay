@@ -61,6 +61,18 @@ export class Tunnels implements OnInit, OnDestroy, OnChanges {
     catch (e) { this.error.set((e as Error).message); }
     finally { this.working.update(ids => ids.filter(value => value !== id)); }
   }
+  async kill(tunnel: Tunnel) {
+    const id = tunnel.definition.id; if (this.working().includes(id)) return;
+    this.working.update(ids => [...ids, id]); this.error.set('');
+    try {
+      const plan = await this.api<{pid: number; processKey: string; affectedTunnels: string[]; affectedPorts: number[]}>(`/tunnels/${id}/kill`);
+      const names = plan.affectedTunnels.join(', ');
+      if (!confirm(`Kill SSH process ${plan.pid}?\n\nThis disconnects: ${names}.\nLocal ports: ${plan.affectedPorts.join(', ')}.\nOther SSH sessions sharing this connection may also disconnect.`)) return;
+      await this.api(`/tunnels/${id}/kill`, 'POST', {processKey: plan.processKey});
+      await this.load();
+    } catch (error) { this.error.set((error as Error).message); }
+    finally { this.working.update(ids => ids.filter(value => value !== id)); }
+  }
   async remove(tunnel: Tunnel) {
     if (!confirm(`Remove saved tunnel “${tunnel.definition.name}”?`)) return;
     try { await this.api(`/tunnels/${tunnel.definition.id}`, 'DELETE'); await this.load(); }

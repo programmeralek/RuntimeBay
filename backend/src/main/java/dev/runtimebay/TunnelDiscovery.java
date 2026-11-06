@@ -8,7 +8,10 @@ import java.util.concurrent.TimeUnit;
 
 /** Read-only reconciliation: require both an exact SSH forward and its listening socket. */
 final class TunnelDiscovery {
-    record SshProcess(long pid, List<String> arguments, Set<Integer> ports, long masterPid) {}
+    record SshProcess(long pid, List<String> arguments, Set<Integer> ports, long masterPid, java.time.Instant started) {
+        SshProcess(long pid, List<String> arguments, Set<Integer> ports, long masterPid) { this(pid, arguments, ports, masterPid, null); }
+        String key() { return pid + "@" + started + ":" + ports.stream().sorted().toList(); }
+    }
 
     static List<SshProcess> snapshot() {
         Map<Long, Set<Integer>> listeners = listeners();
@@ -20,25 +23,40 @@ final class TunnelDiscovery {
                 if (!info.command().map(command -> Path.of(command).getFileName().toString().equals("ssh")).orElse(false)) return null;
                 return info.arguments().map(args -> {
                     var arguments = List.of(args); var ports = listeners.getOrDefault(process.pid(), Set.of());
-                    return new SshProcess(process.pid(), arguments, ports, ports.isEmpty() ? masterPid(arguments) : -1);
+                    return new SshProcess(process.pid(), arguments, ports, ports.isEmpty() ? masterPid(arguments) : -1, info.startInstant().orElse(null));
                 }).orElse(null);
             }).filter(Objects::nonNull).toList();
         }
     }
 
     static boolean matches(SshTunnels.Definition definition, HostRegistry.Host host, List<SshProcess> processes) {
+        return owner(definition, host, processes) != null;
+    }
+    static SshProcess owner(SshTunnels.Definition definition, HostRegistry.Host host, List<SshProcess> processes) {
         String target = definition.sshAlias() == null ? (host.user().isEmpty() ? "" : host.user() + "@") + host.address() : definition.sshAlias();
         String route = "127.0.0.1:" + definition.localPort() + ":" + definition.remoteHost() + ":" + definition.remotePort();
         for (var client : processes) {
             var args = client.arguments();
             if (!target.equals(destination(args)) || !hasForward(args, route)) continue;
             if (definition.sshAlias() == null && host.port() != null && !Integer.toString(host.port()).equals(option(args, "-p"))) continue;
-            if (client.ports().contains(definition.localPort())) return true;
+            if (client.ports().contains(definition.localPort())) return client;
             long masterPid = client.masterPid();
             // Multiplexed clients do not own the listener; their SSH master does.
-            if (masterPid > 0 && processes.stream().anyMatch(master -> master.pid() == masterPid && master.ports().contains(definition.localPort()))) return true;
+            if (masterPid > 0) {
+                var master = processes.stream().filter(value -> value.pid() == masterPid && value.ports().contains(definition.localPort())).findFirst();
+                if (master.isPresent()) return master.get();
+            }
         }
-        return false;
+        return null;
+    }
+    static void kill(SshProcess expected) {
+        ProcessHandle process = ProcessHandle.of(expected.pid()).orElseThrow(() -> new ApiException(409, "The SSH process already exited. Refresh tunnels."));
+        var info = process.info();
+        if (expected.started() == null || !info.startInstant().filter(expected.started()::equals).isPresent()
+            || !info.command().map(command -> Path.of(command).getFileName().toString().equals("ssh")).orElse(false)
+            || !info.arguments().map(args -> List.of(args).equals(expected.arguments())).orElse(false))
+            throw new ApiException(409, "The SSH process changed. Refresh tunnels before trying again.");
+        if (!process.destroyForcibly()) throw new ApiException(409, "Could not kill the SSH process. It may have exited or belong to another user.");
     }
 
     private static boolean hasForward(List<String> args, String route) {

@@ -7,6 +7,39 @@ import org.junit.jupiter.api.io.TempDir;
 
 class SshTunnelsTest {
     @TempDir Path temporary;
+    @Test void killRejectsAnUnrelatedProcessEvenWhenItsPidAndStartTimeAreKnown() throws Exception {
+        Process child = new ProcessBuilder("/bin/sleep", "30").start();
+        try {
+            var info = child.info();
+            var expected = new TunnelDiscovery.SshProcess(child.pid(), java.util.List.of(info.arguments().orElseThrow()), java.util.Set.of(8099), -1, info.startInstant().orElseThrow());
+            assertThrows(ApiException.class, () -> TunnelDiscovery.kill(expected));
+            assertTrue(child.isAlive());
+        } finally { child.destroyForcibly(); }
+    }
+    @Test void killPreviewsSharedTunnelsRevalidatesIdentityAndKillsOnlyVerifiedOwner() throws Exception {
+        var registry = new HostRegistry(temporary);
+        var host = registry.save(null, "Helfer", "helfer", "alek", 22);
+        var hosts = new MachineHosts(registry, new HostTools());
+        var started = java.time.Instant.parse("2026-11-06T00:00:00Z");
+        var master = new TunnelDiscovery.SshProcess(100, java.util.List.of("-N", "-L", "127.0.0.1:18098:localhost:8098", "--", "helfer-remote"), java.util.Set.of(18098, 8099), -1, started);
+        var client = new TunnelDiscovery.SshProcess(101, java.util.List.of("-N", "-L", "127.0.0.1:8099:localhost:8099", "--", "helfer-remote"), java.util.Set.of(), 100, started);
+        var snapshot = new java.util.concurrent.atomic.AtomicReference<java.util.List<TunnelDiscovery.SshProcess>>(java.util.List.of(master, client));
+        var killed = new java.util.ArrayList<Long>();
+        var tunnels = new SshTunnels(temporary, hosts, null, temporary, snapshot::get, process -> { killed.add(process.pid()); snapshot.set(java.util.List.of()); });
+        var first = tunnels.save(null, "Processor", host.id(), 18098, "localhost", 8098, "helfer-remote");
+        var second = tunnels.save(null, "UI", host.id(), 8099, "localhost", 8099, "helfer-remote");
+        var plan = tunnels.previewKill(second.definition().id());
+        assertEquals(100, plan.pid()); assertEquals(java.util.List.of("Processor", "UI"), plan.affectedTunnels());
+        snapshot.set(java.util.List.of(new TunnelDiscovery.SshProcess(100, master.arguments(), master.ports(), -1, started.plusSeconds(1)), client));
+        assertThrows(ApiException.class, () -> tunnels.kill(second.definition().id(), plan.processKey())); assertTrue(killed.isEmpty());
+        snapshot.set(java.util.List.of(new TunnelDiscovery.SshProcess(100, master.arguments(), java.util.Set.of(18098, 8099, 9999), -1, started), client));
+        assertThrows(ApiException.class, () -> tunnels.kill(second.definition().id(), plan.processKey())); assertTrue(killed.isEmpty());
+        snapshot.set(java.util.List.of(master, client));
+        assertEquals("stopped", tunnels.kill(second.definition().id(), plan.processKey()).state());
+        assertEquals(java.util.List.of(100L), killed); assertEquals("stopped", tunnels.list().getFirst().state());
+        assertThrows(ApiException.class, () -> tunnels.previewKill(first.definition().id()));
+        tunnels.close(); hosts.close();
+    }
 
     @Test void recoversVerifiedForwardAfterReloadWithoutStartingOrTakingOwnership() throws Exception {
         var registry = new HostRegistry(temporary);

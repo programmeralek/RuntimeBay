@@ -389,6 +389,8 @@ final class ApiServer implements AutoCloseable {
         if (parts.length == 3 && method.equals("DELETE")) { tunnels.remove(parts[2]); json(e, 200, Map.of("removed", true)); return; }
         if (parts.length == 4 && parts[3].equals("start") && method.equals("POST")) { body(e); json(e, 200, tunnels.start(parts[2])); return; }
         if (parts.length == 4 && parts[3].equals("stop") && method.equals("POST")) { body(e); json(e, 200, tunnels.stop(parts[2])); return; }
+        if (parts.length == 4 && parts[3].equals("kill") && method.equals("GET")) { json(e, 200, tunnels.previewKill(parts[2])); return; }
+        if (parts.length == 4 && parts[3].equals("kill") && method.equals("POST")) { json(e, 200, tunnels.kill(parts[2], string(body(e), "processKey"))); return; }
         throw new ApiException(404, "Tunnel endpoint not found");
     }
     private void routeDocker(HttpExchange e, String[] parts) throws IOException {

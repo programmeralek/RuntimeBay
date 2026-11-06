@@ -40,6 +40,10 @@ Each workflow has an **Editor** tab with a folder browser, file tabs, and an ope
 
 The editor is loaded on demand. Reopen the updated app to load its new backend and native unsaved-change safeguards; rebuilding does not restart a currently running session or its tunnels.
 
+## Tunnel recovery and Kill
+
+Saved tunnels that are still listening in another session appear as active and have a **Kill** button. Runtime Bay finds the verified SSH listener PID, shows the affected saved tunnels and local ports, and asks for confirmation before forcefully terminating that process. If several forwards share an SSH master, killing the process disconnects all of them and may disconnect other SSH sessions using it. Process identity and ports are checked again immediately before killing; stale confirmations are rejected. This session's own tunnels retain their normal Stop action.
+
 ## The product
 
 Development often means a scattered collection of terminal tabs, running servers, container dashboards, and remote connections. Runtime Bay brings the runtime work into one native Mac application, with projects as the starting point.

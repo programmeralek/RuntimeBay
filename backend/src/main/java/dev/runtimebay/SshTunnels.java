@@ -13,6 +13,7 @@ import java.util.concurrent.*;
 final class SshTunnels implements AutoCloseable {
     record Definition(String id, String name, String hostId, int localPort, String remoteHost, int remotePort, String sshAlias) {}
     record View(Definition definition, String hostName, String state, String error, boolean unreadError, boolean external) {}
+    record KillPlan(long pid, String processKey, List<String> affectedTunnels, Set<Integer> affectedPorts) {}
     private record Saved(int version, List<Definition> tunnels, Map<String, String> errors, Set<String> unreadErrors) {}
     private static final class Live {
         final Process process;
@@ -30,6 +31,7 @@ final class SshTunnels implements AutoCloseable {
     private final Set<String> unreadErrors = new LinkedHashSet<>();
     private final Set<String> recovered = new HashSet<>();
     private final java.util.function.Supplier<List<TunnelDiscovery.SshProcess>> discovery;
+    private final java.util.function.Consumer<TunnelDiscovery.SshProcess> killer;
     private long lastProbe;
     private final ExecutorService readers = Executors.newVirtualThreadPerTaskExecutor();
     private boolean closed;
@@ -38,8 +40,12 @@ final class SshTunnels implements AutoCloseable {
         this(directory, hosts, passwords, controls, TunnelDiscovery::snapshot);
     }
     SshTunnels(Path directory, MachineHosts hosts, HostPasswords passwords, Path controls, java.util.function.Supplier<List<TunnelDiscovery.SshProcess>> discovery) throws IOException {
+        this(directory, hosts, passwords, controls, discovery, TunnelDiscovery::kill);
+    }
+    SshTunnels(Path directory, MachineHosts hosts, HostPasswords passwords, Path controls, java.util.function.Supplier<List<TunnelDiscovery.SshProcess>> discovery, java.util.function.Consumer<TunnelDiscovery.SshProcess> killer) throws IOException {
         this.file = directory.resolve("tunnels.json"); this.hosts = hosts; this.passwords = passwords; this.controls = controls;
         this.discovery = discovery;
+        this.killer = killer;
         load();
     }
 
@@ -140,6 +146,45 @@ final class SshTunnels implements AutoCloseable {
         if (recovered.contains(id)) throw new ApiException(409, "This tunnel is active in another session. Stop it from the session that started it.");
         stopProcess(id);
         return view(definition);
+    }
+    synchronized KillPlan previewKill(String id) {
+        var processes = freshProcesses();
+        var owner = externalOwner(id, processes);
+        var affected = definitions.values().stream().filter(definition -> {
+            var process = TunnelDiscovery.owner(definition, hosts.get(definition.hostId()), processes);
+            return process != null && process.pid() == owner.pid();
+        }).map(Definition::name).toList();
+        return new KillPlan(owner.pid(), owner.key(), affected, owner.ports());
+    }
+    synchronized View kill(String id, String processKey) {
+        Definition definition = require(id);
+        var processes = freshProcesses();
+        var owner = externalOwner(id, processes);
+        if (!owner.key().equals(processKey)) throw new ApiException(409, "This tunnel's SSH process changed. Review Kill again before proceeding.");
+        killer.accept(owner);
+        for (Definition affected : definitions.values()) {
+            var process = TunnelDiscovery.owner(affected, hosts.get(affected.hostId()), processes);
+            if (process != null && process.pid() == owner.pid()) {
+                live.remove(affected.id());
+                recovered.remove(affected.id()); errors.remove(affected.id()); unreadErrors.remove(affected.id());
+            }
+        }
+        lastProbe = 0;
+        try { persist(); } catch (IOException ignored) { /* The next probe still reflects the process state. */ }
+        return view(definition);
+    }
+    private List<TunnelDiscovery.SshProcess> freshProcesses() {
+        var processes = discovery.get();
+        if (processes == null) throw new ApiException(503, "Could not verify the tunnel process. No process was killed; refresh and try again.");
+        return processes;
+    }
+    private TunnelDiscovery.SshProcess externalOwner(String id, List<TunnelDiscovery.SshProcess> processes) {
+        Definition definition = require(id);
+        Live owned = live.get(id);
+        if (owned != null && owned.process.isAlive()) throw new ApiException(409, "This session owns the tunnel. Use Stop tunnel instead.");
+        var owner = TunnelDiscovery.owner(definition, hosts.get(definition.hostId()), processes);
+        if (owner == null) throw new ApiException(409, "No matching active SSH forward was found. Refresh tunnels.");
+        return owner;
     }
 
     private void monitor(String id, Live process) {
