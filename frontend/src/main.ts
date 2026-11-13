@@ -39,6 +39,7 @@ class App implements OnDestroy {
   projects = signal<Project[]>([]);
   workflows = signal<WorkflowView[]>([]);
   projectId = signal<string | null>(null);
+  private readonly workflowViews = this.readWorkflowViews();
   serviceId = signal<string | null>(null);
   connected = signal(false);
   loading = signal(true);
@@ -199,7 +200,7 @@ class App implements OnDestroy {
       const [projects, workflows] = await Promise.all([this.api<Project[]>('/projects'), this.api<WorkflowView[]>('/workflows')]);
       this.workflows.set(workflows);
       this.projects.set(projects); this.connected.set(true);
-      if (!projects.some(p => p.id === this.projectId())) this.selectProject(projects[0]?.id || null, false);
+      if (!projects.some(p => p.id === this.projectId())) this.selectProject(projects[0]?.id || null);
       const selected = this.service();
       if (selected && this.view() === 'runtime') await this.refreshLogs(this.projectId()!, selected.id);
     } catch (e) { if (!this.destroyed) { this.connected.set(false); this.error.set((e as Error).message); } }
@@ -220,8 +221,8 @@ class App implements OnDestroy {
     if (source.kind === 'terminal') { this.view.set('terminal'); void this.terminals.create(this.projectId(), source.sourceId); return; }
     if (!this.projects().some(p => p.id === source.projectId)) { this.error.set('The source workflow is missing. Refresh or rebind this resource.'); return; }
     this.selectProject(source.projectId);
-    if (source.kind === 'database') this.view.set('databases');
-    else { this.view.set('runtime'); this.selectService(source.sourceId); }
+    if (source.kind === 'database') this.setWorkflowView('databases');
+    else { this.setWorkflowView('runtime'); this.selectService(source.sourceId); }
   }
   async newTerminal() {
     this.view.set('terminal');
@@ -232,13 +233,45 @@ class App implements OnDestroy {
   async openWorkflowTerminal() {
     const projectId=this.projectId(); if(!projectId)return;
     const tab=this.workflowTerminal() || await this.terminals.createWorkflow(projectId);
-    if(tab){this.terminals.selected.set(tab.id);this.view.set('workflow-terminal');}
+    if(tab){this.terminals.selected.set(tab.id);this.view.set('workflow-terminal');this.rememberWorkflowView();}
   }
   async openHostTerminal(hostId: string) { this.view.set('terminal'); await this.terminals.create(null, hostId); }
   selectTerminal(id: string) { this.terminals.selected.set(id); this.view.set('terminal'); }
+  private readWorkflowViews(): Record<string, 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor'> {
+    try {
+      const value = JSON.parse(localStorage.getItem('runtimebay.workflowViews') || '{}');
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+      const allowed = new Set(['runtime', 'workflow-terminal', 'databases', 'git', 'editor']);
+      return Object.fromEntries(Object.entries(value).filter(([key, view]) => !!key && typeof view === 'string' && allowed.has(view))) as Record<string, 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor'>;
+    } catch { return {}; }
+  }
+  private rememberWorkflowView() {
+    const id = this.projectId(), view = this.view();
+    if (!id || !['runtime', 'workflow-terminal', 'databases', 'git', 'editor'].includes(view)) return;
+    this.workflowViews[id] = view as 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor';
+    try { localStorage.setItem('runtimebay.workflowViews', JSON.stringify(this.workflowViews)); } catch { /* Workflow switching still works if storage is unavailable. */ }
+  }
+  setWorkflowView(view: 'runtime' | 'databases' | 'git' | 'editor') {
+    this.view.set(view);
+    this.rememberWorkflowView();
+  }
+  private restoreWorkflowView(id: string | null) {
+    if (!id) return;
+    const saved = this.workflowViews[id];
+    if (saved === 'workflow-terminal') {
+      const tab = this.terminals.tabs().find(value => value.workflowId === id);
+      if (tab) { this.terminals.selected.set(tab.id); this.view.set('workflow-terminal'); }
+      else this.view.set('runtime');
+      return;
+    }
+    this.view.set(saved || 'runtime');
+  }
   selectProject(id: string | null, switchView = true) {
-    if (switchView && !['databases', 'git', 'editor'].includes(this.view())) this.view.set('runtime');
-    this.projectId.set(id); this.selectService(this.project()?.services[0]?.id || null);
+    if (this.projectId() === id) { if (switchView) this.restoreWorkflowView(id); return; }
+    this.rememberWorkflowView();
+    this.projectId.set(id);
+    this.selectService(this.project()?.services[0]?.id || null);
+    if (switchView) this.restoreWorkflowView(id);
   }
   selectService(id: string | null) {
     if (this.serviceId() === id) return;
@@ -283,7 +316,7 @@ class App implements OnDestroy {
     finally { this.workflowOperation.set(false); }
   }
   openProject() { this.view.set('runtime'); this.projectForm = { name: '', path: '' }; this.formError.set(''); this.sheet.set('project'); }
-  openEditor() { this.terminals.fullscreen.set(false); this.view.set('editor'); }
+  openEditor() { this.terminals.fullscreen.set(false); this.setWorkflowView('editor'); }
   openNew() { this.sheet.set('new'); }
   newWorkflow() { this.sheet.set(null); this.openProject(); }
   newHost() { this.sheet.set(null); this.hostCreateRequested.set(true); this.view.set('hosts'); }
