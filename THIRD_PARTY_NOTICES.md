@@ -21,7 +21,7 @@ The integrated editor uses CodeMirror 6.0.2 and its pinned `@codemirror` state, 
 | SnakeYAML | 2.5 | Strict workflow YAML parsing and export | [Apache-2.0](licenses/SnakeYAML-Apache-2.0.txt) | [SnakeYAML](https://bitbucket.org/snakeyaml/snakeyaml/src/snakeyaml-2.5/) |
 | Gson | 2.13.2 | JSON serialization | [Apache-2.0](licenses/Gson-Apache-2.0.txt) | [Gson](https://github.com/google/gson/tree/gson-parent-2.13.2) |
 | Error Prone annotations | 2.41.0 | Gson transitive dependency in the shaded JAR | [Apache-2.0](licenses/ErrorProne-Apache-2.0.txt) | [Error Prone](https://github.com/google/error-prone/tree/v2.41.0) |
-| Devicon SVG artwork | v2.17.0 | Developer tool logos | [MIT](licenses/Devicon-MIT.txt); trademarks retained by their owners | [Devicon](https://github.com/devicons/devicon/tree/v2.17.0) |
+| Devicon SVG artwork | v2.17.0 | Developer tool and common container image logos | [MIT](licenses/Devicon-MIT.txt); trademarks retained by their owners | [Devicon](https://github.com/devicons/devicon/tree/v2.17.0) |
 | OpenJDK runtime | Java 25, selected during packaging | Runs the Java backend | GPL-2.0 with the Classpath Exception and bundled module-specific notices | [OpenJDK](https://openjdk.org/) |
 
 ### Preserved attribution
@@ -34,7 +34,7 @@ The integrated editor uses CodeMirror 6.0.2 and its pinned `@codemirror` state, 
 - **tslib:** Microsoft Corporation's 0BSD copyright and permission notice is preserved.
 - **Gson / Error Prone annotations:** Copyright Google LLC / The Error Prone Authors; the upstream Apache license texts are preserved separately. The annotations are actually included in the shaded backend JAR, rather than being only a test tool.
 - **GSAP:** The original 3.15.0 notice credits GreenSock, identifies Jack Doyle, and links the Standard license. [GSAP-NOTICE.txt](licenses/GSAP-NOTICE.txt) preserves that notice. The [license snapshot](licenses/GSAP-Standard-License.txt) records its source and retrieval date. GSAP is not relicensed under MIT or Apache; its custom terms include restrictions concerning competing visual animation builders. Copyright headers remain in the generated frontend and native startup bundles.
-- **Devicon:** Copyright (c) 2015 konpa. Twelve unmodified SVG assets identify fourteen probes: Python also identifies pip, and Java also identifies javac. The license ships both in `Resources/licenses/Devicon-MIT.txt` and beside the web assets. [sources.json](frontend/src/assets/tool-logos/sources.json) records the versioned source URLs and SHA-256 checksums. Brand marks do not imply endorsement and are not recolored.
+- **Devicon:** Copyright (c) 2015 konpa. Sixteen unmodified SVG assets identify fourteen developer tool probes plus common Redis, Apache Kafka, Grafana, and Jaeger container images. The license ships both in `Resources/licenses/Devicon-MIT.txt` and beside the web assets. [sources.json](frontend/src/assets/tool-logos/sources.json) records the versioned source URLs and SHA-256 checksums. Brand marks do not imply endorsement and are not recolored.
 
 ### Java runtime provenance
 

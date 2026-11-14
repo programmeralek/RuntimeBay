@@ -73,6 +73,18 @@ export class WorkflowContainers implements OnChanges, OnDestroy {
     finally { if (revision === this.revision) this.refreshing = false; }
   }
   state(link: Link) { return this.states().find(value => value.link.id === link.id); }
+  containerLogo(image: string, name = ''): string {
+    const reference = `${image} ${name}`.toLowerCase();
+    if (/(^|[^a-z])redis([^a-z]|$)/.test(reference)) return 'redis';
+    if (/(^|[^a-z])(kafka|cp-kafka)([^a-z]|$)/.test(reference)) return 'apachekafka';
+    if (/(^|[^a-z])grafana([^a-z]|$)/.test(reference)) return 'grafana';
+    if (/(^|[^a-z])jaeger([^a-z]|$)/.test(reference)) return 'jaeger';
+    return 'docker';
+  }
+  containerProduct(image: string, name = ''): string {
+    const logo = this.containerLogo(image, name);
+    return logo === 'apachekafka' ? 'Apache Kafka' : logo === 'docker' ? 'Container image' : logo[0].toUpperCase() + logo.slice(1);
+  }
   async startDependency(resourceId: string) {
     await this.load(); await this.refresh();
     const state = this.states().find(value => value.link.id === resourceId);

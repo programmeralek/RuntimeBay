@@ -61,6 +61,26 @@
       "file": "go.svg",
       "source": "https://raw.githubusercontent.com/devicons/devicon/v2.17.0/icons/go/go-original.svg",
       "sha256": "2d4558b96d3ec71d0d922a62668cb2ea5a5d83ed7d4caf6b0479b3266f795a2f"
+    },
+    {
+      "file": "redis.svg",
+      "source": "https://raw.githubusercontent.com/devicons/devicon/v2.17.0/icons/redis/redis-original.svg",
+      "sha256": "4707378b190878f36f7e6e1c01fa3ee7e7884c76101809d191dddd943a2e6bdb"
+    },
+    {
+      "file": "apachekafka.svg",
+      "source": "https://raw.githubusercontent.com/devicons/devicon/v2.17.0/icons/apachekafka/apachekafka-original.svg",
+      "sha256": "2505c5b688c18c8fd5dd8e888561eb7b23a56a75d291ff17e8ee18770193f3e8"
+    },
+    {
+      "file": "grafana.svg",
+      "source": "https://raw.githubusercontent.com/devicons/devicon/v2.17.0/icons/grafana/grafana-original.svg",
+      "sha256": "2dec200d4e56521bec8dd463173c623b33b8c97e6159cac9b3ed00b6bff0f6ad"
+    },
+    {
+      "file": "jaeger.svg",
+      "source": "https://raw.githubusercontent.com/devicons/devicon/v2.17.0/icons/jaegertracing/jaegertracing-original.svg",
+      "sha256": "19b41e63a738e7990cfd369680c504696294b0b775f52751f4f2afe18701a0c2"
     }
   ]
 }
