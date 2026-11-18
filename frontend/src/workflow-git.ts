@@ -67,6 +67,7 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     catch (e) { this.diff.set((e as Error).message); }
   }
   async stage(change: GitChange) { await this.mutate('stage', { path: change.path }); }
+  async stageAll() { await this.mutate('stage', { path: '.' }); }
   async unstage(change: GitChange) { await this.mutate('unstage', { path: change.path }); }
   async commit() {
     if (!this.message.trim()) return;
