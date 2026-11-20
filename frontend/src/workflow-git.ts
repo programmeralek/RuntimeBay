@@ -26,16 +26,18 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   section = signal<'changes' | 'history'>('changes');
   private controller?: AbortController;
   private timer?: ReturnType<typeof setInterval>;
+  private noticeTimer?: ReturnType<typeof setTimeout>;
   private revision = 0;
   ngOnChanges(changes: SimpleChanges) {
     if (changes['projectId'] || changes['visible']) {
       this.revision++;
       clearInterval(this.timer);
+      if (changes['projectId']) this.clearNotice();
       if (this.visible && this.projectId) { void this.load(); this.timer = setInterval(() => { if (!this.busy()) void this.load(false); }, 6000); }
       else { clearInterval(this.timer); this.diff.set(''); this.commits.set([]); }
     }
   }
-  ngOnDestroy() { clearInterval(this.timer); this.controller?.abort(); }
+  ngOnDestroy() { clearInterval(this.timer); clearTimeout(this.noticeTimer); this.controller?.abort(); }
   private async api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch('/api' + path, { method, signal: this.controller?.signal,
       headers: { Authorization: 'Bearer ' + this.session, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -71,26 +73,41 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   async unstage(change: GitChange) { await this.mutate('unstage', { path: change.path }); }
   async commit() {
     if (!this.message.trim()) return;
-    const message = this.message.trim(); await this.mutate('commit', { message });
-    if (!this.error()) { this.message = ''; this.notice.set('Commit created.'); if (this.section() === 'history') await this.loadHistory(); }
+    const message = this.message.trim();
+    if (await this.mutate('commit', { message }, 'Commit created successfully.')) {
+      this.message = '';
+      if (this.section() === 'history') await this.loadHistory();
+    }
   }
-  async pull() { if (!confirm('Pull the latest changes using a fast-forward only?')) return; await this.mutate('pull', {}); }
-  async push() { await this.mutate('push', {}); }
+  async pull() { if (!confirm('Pull the latest changes using a fast-forward only?')) return; await this.mutate('pull', {}, 'Pull completed successfully.'); }
+  async push() { await this.mutate('push', {}, 'Push completed successfully.'); }
+  dismissNotice() { this.clearNotice(); }
+  private clearNotice() { clearTimeout(this.noticeTimer); this.noticeTimer = undefined; this.notice.set(''); }
+  private showNotice(message: string) {
+    clearTimeout(this.noticeTimer);
+    this.notice.set(message);
+    this.noticeTimer = setTimeout(() => { this.notice.set(''); this.noticeTimer = undefined; }, 4200);
+  }
   async openCommit(commit: Commit) {
     this.selectedPath.set(''); this.diff.set('');
     try { this.commitDetail.set((await this.api<{detail: string}>(`/projects/${this.projectId}/git/commit/${commit.hash}`)).detail); }
     catch (e) { this.error.set((e as Error).message); }
   }
-  async mutate(action: string, body: unknown) {
-    if (this.busy()) return;
-    this.busy.set(true); this.error.set(''); this.notice.set('');
+  async mutate(action: string, body: unknown, successMessage?: string): Promise<boolean> {
+    if (this.busy()) return false;
+    const projectId = this.projectId;
+    this.busy.set(true); this.error.set(''); this.clearNotice();
     try {
-      const value = action === 'init' ? await this.api<GitStatus>(`/projects/${this.projectId}/git/init`, 'POST', body)
-        : await this.api<GitStatus>(`/projects/${this.projectId}/git/${action}`, 'POST', body);
+      const value = action === 'init' ? await this.api<GitStatus>(`/projects/${projectId}/git/init`, 'POST', body)
+        : await this.api<GitStatus>(`/projects/${projectId}/git/${action}`, 'POST', body);
+      if (projectId !== this.projectId) return true;
       this.status.set(value); this.diff.set(''); this.selectedPath.set('');
       if (this.section() === 'history') await this.loadHistory();
-    } catch (e) { this.error.set((e as Error).message); }
+      if (successMessage) this.showNotice(successMessage);
+      return true;
+    } catch (e) { if (projectId === this.projectId) this.error.set((e as Error).message); }
     finally { this.busy.set(false); }
+    return false;
   }
   staged(change: GitChange) { return change.indexStatus !== ' ' && change.indexStatus !== '?'; }
   changed(change: GitChange) { return change.worktreeStatus !== ' '; }

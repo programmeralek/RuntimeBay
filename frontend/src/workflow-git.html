@@ -1,7 +1,7 @@
+@if (notice()) { <div class="git-toast" role="status" aria-live="polite"><span aria-hidden="true">✓</span>{{ notice() }}<button (click)="dismissNotice()" aria-label="Dismiss notification">×</button></div> }
 <section class="git-workspace" [hidden]="!visible" aria-label="Git version management">
   <div class="git-heading"><div><span class="eyebrow">WORKFLOW VERSION CONTROL</span><h1>Git</h1><p>Review and manage changes in {{ projectName }}.</p></div><button class="git-refresh" (click)="load()" [disabled]="loading() || busy()">↻ Refresh</button></div>
   @if (error()) { <div class="git-notice error" role="alert">{{ error() }}<button (click)="error.set('')" aria-label="Dismiss error">×</button></div> }
-  @if (notice()) { <div class="git-notice success" role="status">{{ notice() }}</div> }
   @if (loading() && !status()) { <div class="git-empty">Checking this workflow’s repository…</div> }
   @else if (status(); as repo) {
     @if (!repo.repository) {
