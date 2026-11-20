@@ -88,6 +88,14 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     this.notice.set(message);
     this.noticeTimer = setTimeout(() => { this.notice.set(''); this.noticeTimer = undefined; }, 4200);
   }
+  async copyHash(shortHash: string) {
+    try {
+      await navigator.clipboard.writeText(shortHash);
+      this.showNotice(`Copied ${shortHash} to clipboard.`);
+    } catch {
+      this.error.set('Could not copy the commit hash to the clipboard.');
+    }
+  }
   async openCommit(commit: Commit) {
     this.selectedPath.set(''); this.diff.set('');
     try { this.commitDetail.set((await this.api<{detail: string}>(`/projects/${this.projectId}/git/commit/${commit.hash}`)).detail); }
