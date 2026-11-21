@@ -42,6 +42,7 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     }
   }
   ngOnDestroy() { clearInterval(this.timer); clearTimeout(this.noticeTimer); this.controller?.abort(); }
+  branchPickerToggled(event: Event) { this.branchPickerOpen.set((event.currentTarget as HTMLDetailsElement).open); }
   private async api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
     const response = await fetch('/api' + path, { method, signal: this.controller?.signal,
       headers: { Authorization: 'Bearer ' + this.session, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },

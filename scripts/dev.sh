@@ -16,7 +16,29 @@ export RUNTIMEBAY_DEV_MODE=1
 mkdir -p .build
 npm run watch:web > .build/web-watch.log 2>&1 &
 watch_pid=$!
+fingerprint_web_assets() {
+  find "$RUNTIMEBAY_WEB_ROOT" -type f ! -name index.html -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}'
+}
+monitor_pid=""
+(
+  previous="$(fingerprint_web_assets)"
+  while kill -0 "$watch_pid" 2>/dev/null; do
+    sleep 1
+    current="$(fingerprint_web_assets)"
+    if [[ "$current" != "$previous" ]]; then
+      sleep 1
+      stable="$(fingerprint_web_assets)"
+      if [[ "$stable" == "$current" ]]; then
+        touch "$RUNTIMEBAY_WEB_ROOT/index.html"
+        previous="$stable"
+      fi
+    fi
+  done
+) &
+monitor_pid=$!
 stop_watcher() {
+  kill "$monitor_pid" 2>/dev/null || true
+  wait "$monitor_pid" 2>/dev/null || true
   kill "$watch_pid" 2>/dev/null || true
   wait "$watch_pid" 2>/dev/null || true
 }
