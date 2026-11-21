@@ -51,6 +51,7 @@ class App implements OnDestroy {
   workflows = signal<WorkflowView[]>([]);
   projectId = signal<string | null>(null);
   private readonly workflowViews = this.readWorkflowViews();
+  private readonly workflowTerminalIds = this.readWorkflowTerminalIds();
   serviceId = signal<string | null>(null);
   connected = signal(false);
   loading = signal(true);
@@ -299,12 +300,27 @@ class App implements OnDestroy {
     this.view.set('terminal');
     await this.terminals.create(this.projectId());
   }
-  workflowTerminal() { return this.terminals.tabs().find(tab => tab.workflowId === this.projectId()) || null; }
+  workflowTerminals() { return this.terminals.tabs().filter(tab => tab.workflowId === this.projectId()); }
+  workflowTerminal() { return this.workflowTerminals().find(tab => tab.id === this.terminals.selected()) || this.workflowTerminals()[0] || null; }
   sidebarTerminals() { const merged = new Set(this.temporaryWorkspaces().map(item => item.terminalId)); return this.terminals.tabs().filter(tab => !tab.workflowId && !merged.has(tab.id)); }
   async openWorkflowTerminal() {
     const projectId=this.projectId(); if(!projectId)return;
-    const tab=this.workflowTerminal() || await this.terminals.createWorkflow(projectId);
+    const tab=this.workflowTerminals().find(value => value.id === this.workflowTerminalIds[projectId]) || this.workflowTerminals()[0] || await this.terminals.createWorkflow(projectId);
     if(tab){this.terminals.selected.set(tab.id);this.view.set('workflow-terminal');this.rememberWorkflowView();}
+  }
+  selectWorkflowTerminal(id: string) {
+    const projectId = this.projectId();
+    if (!projectId) return;
+    const tab = this.terminals.tabs().find(value => value.id === id && value.workflowId === projectId);
+    if (!tab) return;
+    this.terminals.selected.set(tab.id);
+    this.workflowTerminalIds[projectId] = tab.id;
+    try { localStorage.setItem('runtimebay.workflowTerminalIds', JSON.stringify(this.workflowTerminalIds)); } catch { /* Selection still works when storage is unavailable. */ }
+  }
+  async addWorkflowTerminal() {
+    const projectId = this.projectId(); if (!projectId || this.terminals.creating()) return;
+    const tab = await this.terminals.createWorkflow(projectId);
+    if (tab) this.selectWorkflowTerminal(tab.id);
   }
   async openHostTerminal(hostId: string) { this.view.set('terminal'); await this.terminals.create(null, hostId); }
   selectTerminal(id: string) { this.terminals.selected.set(id); this.view.set('terminal'); }
@@ -375,10 +391,21 @@ class App implements OnDestroy {
       return Object.fromEntries(Object.entries(value).filter(([key, view]) => !!key && typeof view === 'string' && allowed.has(view))) as Record<string, 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor'>;
     } catch { return {}; }
   }
+  private readWorkflowTerminalIds(): Record<string, string> {
+    try {
+      const value = JSON.parse(localStorage.getItem('runtimebay.workflowTerminalIds') || '{}');
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+      return Object.fromEntries(Object.entries(value).filter(([key, id]) => !!key && typeof id === 'string')) as Record<string, string>;
+    } catch { return {}; }
+  }
   private rememberWorkflowView() {
     const id = this.projectId(), view = this.view();
     if (!id || !['runtime', 'workflow-terminal', 'databases', 'git', 'editor'].includes(view)) return;
     this.workflowViews[id] = view as 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor';
+    if (view === 'workflow-terminal' && this.workflowTerminals().some(tab => tab.id === this.terminals.selected())) {
+      this.workflowTerminalIds[id] = this.terminals.selected()!;
+      try { localStorage.setItem('runtimebay.workflowTerminalIds', JSON.stringify(this.workflowTerminalIds)); } catch { /* View switching still works if storage is unavailable. */ }
+    }
     try { localStorage.setItem('runtimebay.workflowViews', JSON.stringify(this.workflowViews)); } catch { /* Workflow switching still works if storage is unavailable. */ }
   }
   setWorkflowView(view: 'runtime' | 'databases' | 'git' | 'editor') {
@@ -389,7 +416,9 @@ class App implements OnDestroy {
     if (!id) return;
     const saved = this.workflowViews[id];
     if (saved === 'workflow-terminal') {
-      const tab = this.terminals.tabs().find(value => value.workflowId === id);
+      const preferredId = this.workflowTerminalIds[id];
+      const tabs = this.terminals.tabs().filter(value => value.workflowId === id);
+      const tab = tabs.find(value => value.id === preferredId) || tabs[0];
       if (tab) { this.terminals.selected.set(tab.id); this.view.set('workflow-terminal'); }
       else this.view.set('runtime');
       return;

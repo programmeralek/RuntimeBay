@@ -308,6 +308,7 @@ main {
 .workflow-path:disabled { cursor:wait; opacity:.65 }
 .workflow-path span { flex:none; opacity:.75 }
 .workflow-terminal-tabs { margin:28px 34px -22px; position:relative; z-index:1 }
+.workflow-terminal-switcher{display:flex;align-items:stretch;gap:7px;margin:22px 34px -14px;padding:0 0 8px;border-bottom:1px solid var(--line);overflow-x:auto}.workflow-terminal-switcher>button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:110px;max-width:210px;padding:8px 12px;border:1px solid transparent;border-radius:7px 7px 0 0;background:transparent;color:var(--muted);text-align:left;white-space:nowrap}.workflow-terminal-switcher>button span{overflow:hidden;text-overflow:ellipsis;max-width:100%}.workflow-terminal-switcher>button small{font-size:calc(9px * var(--font-scale,1));opacity:.75}.workflow-terminal-switcher>button.selected{border-color:var(--line);border-bottom-color:var(--surface);background:var(--surface);color:var(--ink)}.workflow-terminal-switcher>button:hover{color:var(--accent)}.workflow-terminal-switcher>.workflow-terminal-add{align-self:center;min-width:auto;margin-left:4px;padding:8px 11px;border:1px solid var(--line);border-radius:6px;color:var(--ink)}.workflow-terminal-add:disabled{opacity:.5}
 .title-symbol {
   font-size:calc(48px * var(--font-scale, 1));
   color:var(--muted);
