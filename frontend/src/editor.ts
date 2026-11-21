@@ -27,7 +27,7 @@ export class Editor implements AfterViewInit, OnChanges, OnDestroy {
     if (!this.visible) return;
     if (event.metaKey && !event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopImmediatePropagation(); void this.save(); }
   };
-  constructor() { effect(() => { const dirty = this.tabs().some(tab => this.dirty(tab)); this.dirtyChange.emit(dirty); window.webkit?.messageHandlers.runtimeBay.postMessage({ action: 'editorDirty', dirty: dirty ? 'true' : 'false' }); }); }
+  constructor() { effect(() => { const dirty = this.tabs().some(tab => this.dirty(tab)); window.runtimeBayEditorDirty = dirty; this.dirtyChange.emit(dirty); window.webkit?.messageHandlers.runtimeBay.postMessage({ action: 'editorDirty', dirty: dirty ? 'true' : 'false' }); }); }
   ngAfterViewInit() { this.mounted = true; window.addEventListener('beforeunload', this.beforeUnload); window.addEventListener('keydown', this.keyListener, true); if (this.requested) this.accept(this.requested); }
   ngOnChanges(changes: SimpleChanges) { if (changes['requested'] && this.requested && this.mounted) this.accept(this.requested); if ((changes['projectId'] || changes['visible']) && this.visible && this.projectId) void this.browse(''); if (changes['workspaceDirectory'] && this.temporary) this.directory.set(this.workspaceDirectory); if (this.visible) setTimeout(() => this.view?.requestMeasure(), 0); }
   ngOnDestroy() { this.destroyed = true; this.view?.destroy(); window.removeEventListener('beforeunload', this.beforeUnload); window.removeEventListener('keydown', this.keyListener, true); }

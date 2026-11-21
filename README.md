@@ -150,7 +150,7 @@ npm ci --cache .cache/npm
 npm run dev
 ```
 
-The development launcher builds the frontend, backend, and native host, then opens the application. Run `npm run watch:web` in a second terminal to rebuild Angular after edits; use **⌘R** in Runtime Bay to reload the workspace. Java and native changes require rebuilding and relaunching.
+The development launcher builds the frontend, backend, and native host, then opens Runtime Bay with a live frontend watcher. Save a frontend change and the page rebuilds and refreshes automatically while keeping the same app session and its running services, terminals, and tunnels. If an editor tab has unsaved changes, the refresh waits until those changes are saved. Java or native changes require stopping and starting `npm run dev` again. Watch output is saved in `.build/web-watch.log`.
 
 ```sh
 npm run check        # Process/API/persistence tests, palette checks, Angular build

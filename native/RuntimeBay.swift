@@ -72,6 +72,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func loadWorkspace(in webView: WKWebView) {
         guard let origin, let sessionToken else { return }
         webView.configuration.userContentController.addUserScript(WKUserScript(source: "window.runtimeBaySession = '\(sessionToken)';", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if ProcessInfo.processInfo.environment["RUNTIMEBAY_DEV_MODE"] == "1" {
+            let watcher = """
+            (() => {
+              let current = null, pending = false;
+              const poll = async () => {
+                try {
+                  const response = await fetch('/api/dev/build-id', { headers: { Authorization: 'Bearer \(sessionToken)' }, cache: 'no-store' });
+                  if (response.ok) {
+                    const value = await response.json();
+                    if (current === null) current = value.id;
+                    else if (value.id !== current) pending = true;
+                  }
+                } catch (_) {}
+                if (pending && !window.runtimeBayEditorDirty) { window.location.reload(); return; }
+                setTimeout(poll, 1200);
+              };
+              setTimeout(poll, 1200);
+            })();
+            """
+            webView.configuration.userContentController.addUserScript(WKUserScript(source: watcher, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         webView.load(URLRequest(url: URL(string: origin + "/")!))
     }
     func makeMenu() {

@@ -27,6 +27,7 @@ declare global {
   interface Window {
     runtimeBayNative?: boolean;
     runtimeBaySession?: string;
+    runtimeBayEditorDirty?: boolean;
     webkit?: { messageHandlers: { runtimeBay: { postMessage(value: string | Record<string, string>): void } } };
   }
 }

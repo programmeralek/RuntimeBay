@@ -32,6 +32,7 @@ final class ApiServer implements AutoCloseable {
     private final SshTunnels tunnels;
     private final Path webRoot;
     private final String token;
+    private final boolean devMode = "1".equals(System.getenv("RUNTIMEBAY_DEV_MODE"));
     private final Gson gson = new GsonBuilder().serializeNulls().create();
     private final ExecutorService requests = Executors.newVirtualThreadPerTaskExecutor();
     ApiServer(ProjectStore store, RuntimeManager runtimes, Path webRoot, String token) throws IOException {
@@ -89,6 +90,13 @@ final class ApiServer implements AutoCloseable {
     private void route(HttpExchange e, String path) throws Exception {
         String method = e.getRequestMethod();
         String[] parts = path.substring(1).split("/");
+        if (path.equals("/api/dev/build-id") && method.equals("GET") && devMode) {
+            Path index = webRoot.resolve("index.html");
+            if (!Files.isRegularFile(index)) throw new ApiException(503, "Development build is in progress");
+            String buildId = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(index)));
+            json(e, 200, Map.of("id", buildId));
+            return;
+        }
         if (parts.length >= 3 && parts[1].equals("editor")) { routeEditor(e, parts); return; }
         if (path.equals("/api/terminals") || path.startsWith("/api/terminals/")) { routeTerminals(e, parts); return; }
         if (path.equals("/api/tunnels") || path.startsWith("/api/tunnels/")) { routeTunnels(e, parts); return; }

@@ -5,7 +5,7 @@
   "description": "A macOS workspace for local development runtimes",
   "scripts": {
     "build:web": "ng build",
-    "watch:web": "ng build --watch --configuration development",
+    "watch:web": "ng build --watch --configuration development --poll=1000",
     "build": "bash scripts/build.sh",
     "check": "bash scripts/check.sh",
     "dev": "bash scripts/dev.sh",
