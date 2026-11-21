@@ -213,6 +213,7 @@ final class ApiServer implements AutoCloseable {
         if (parts.length == 5 && parts[4].equals("commit") && method.equals("POST")) { git.commit(project, string(body(e), "message")); json(e, 200, git.status(project)); return; }
         if (parts.length == 5 && parts[4].equals("pull") && method.equals("POST")) { git.pull(project); json(e, 200, git.status(project)); return; }
         if (parts.length == 5 && parts[4].equals("push") && method.equals("POST")) { git.push(project); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("checkout") && method.equals("POST")) { var value = body(e); git.checkout(project, string(value, "branch"), Boolean.TRUE.equals(value.get("create"))); json(e, 200, git.status(project)); return; }
         throw new ApiException(404, "Git endpoint not found");
     }
     private void routeEditor(HttpExchange e, String[] parts) throws IOException {

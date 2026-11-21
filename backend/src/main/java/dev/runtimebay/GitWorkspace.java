@@ -10,8 +10,9 @@ import java.util.concurrent.TimeUnit;
 /** Small, allowlisted Git interface rooted at an imported workflow directory. */
 final class GitWorkspace {
     record Change(String path, String indexStatus, String worktreeStatus, boolean untracked) {}
+    record Branch(String name, String upstream) {}
     record Status(boolean repository, String branch, String upstream, int ahead, int behind,
-                  boolean hasRemote, List<Change> changes) {}
+                  boolean hasRemote, List<Change> changes, List<Branch> branches) {}
     record Commit(String hash, String shortHash, String subject, String author, String date) {}
     private record Result(int code, String out, String err) {}
     private static final int MAX_OUTPUT = 2_000_000;
@@ -21,7 +22,7 @@ final class GitWorkspace {
 
     Status status(String projectId) throws IOException {
         Path cwd = cwd(projectId);
-        if (!repository(cwd)) return new Status(false, "", "", 0, 0, false, List.of());
+        if (!repository(cwd)) return new Status(false, "", "", 0, 0, false, List.of(), List.of());
         Result raw = run(cwd, "status", "--porcelain=v1", "--branch", "--untracked-files=all");
         requireOk(raw);
         String branch = "", upstream = ""; int ahead = 0, behind = 0;
@@ -50,7 +51,31 @@ final class GitWorkspace {
             changes.add(new Change(path, x, y, x.equals("?") && y.equals("?")));
         }
         Result remotes = run(cwd, "remote");
-        return new Status(true, branch, upstream, ahead, behind, remotes.code() == 0 && !remotes.out().isBlank(), changes);
+        return new Status(true, branch, upstream, ahead, behind, remotes.code() == 0 && !remotes.out().isBlank(), changes, branches(cwd));
+    }
+
+    private List<Branch> branches(Path cwd) throws IOException {
+        Result result = run(cwd, "for-each-ref", "--format=%(refname:short)%09%(upstream:short)", "refs/heads");
+        requireOk(result);
+        List<Branch> branches = new ArrayList<>();
+        for (String line : result.out().split("\\n")) {
+            if (line.isBlank()) continue;
+            String[] fields = line.split("\\t", 2);
+            branches.add(new Branch(fields[0], fields.length > 1 ? fields[1] : ""));
+        }
+        return List.copyOf(branches);
+    }
+
+    void checkout(String projectId, String branch, boolean create) throws IOException {
+        Path cwd = cwd(projectId); requireRepository(cwd);
+        if (branch == null || branch.isBlank() || branch.length() > 250) throw new ApiException(400, "Enter a valid branch name");
+        Result valid = run(cwd, "check-ref-format", "--branch", branch);
+        if (valid.code() != 0 || !valid.out().trim().equals(branch)) throw new ApiException(400, "Enter a valid Git branch name");
+        List<Branch> local = branches(cwd);
+        boolean exists = local.stream().anyMatch(item -> item.name().equals(branch));
+        if (create && exists) throw new ApiException(409, "A local branch with that name already exists");
+        if (!create && !exists) throw new ApiException(404, "That local branch no longer exists. Refresh and choose another branch.");
+        requireOk(create ? run(cwd, "switch", "-c", branch) : run(cwd, "switch", "--", branch));
     }
 
     void init(String projectId) throws IOException {

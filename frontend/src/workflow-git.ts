@@ -2,7 +2,8 @@ import { Component, Input, OnChanges, OnDestroy, SimpleChanges, signal } from '@
 import { FormsModule } from '@angular/forms';
 
 interface GitChange { path: string; indexStatus: string; worktreeStatus: string; untracked: boolean }
-interface GitStatus { repository: boolean; branch: string; upstream: string; ahead: number; behind: number; hasRemote: boolean; changes: GitChange[] }
+interface GitBranch { name: string; upstream: string }
+interface GitStatus { repository: boolean; branch: string; upstream: string; ahead: number; behind: number; hasRemote: boolean; changes: GitChange[]; branches: GitBranch[] }
 interface Commit { hash: string; shortHash: string; subject: string; author: string; date: string }
 
 @Component({ selector: 'app-workflow-git', standalone: true, imports: [FormsModule], templateUrl: './workflow-git.html', styleUrl: './workflow-git.css' })
@@ -24,6 +25,8 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   busy = signal(false);
   loading = signal(true);
   section = signal<'changes' | 'history'>('changes');
+  branchPickerOpen = signal(false);
+  newBranchName = signal('');
   private controller?: AbortController;
   private timer?: ReturnType<typeof setInterval>;
   private noticeTimer?: ReturnType<typeof setTimeout>;
@@ -33,6 +36,7 @@ export class WorkflowGit implements OnChanges, OnDestroy {
       this.revision++;
       clearInterval(this.timer);
       if (changes['projectId']) this.clearNotice();
+      if (changes['projectId']) { this.branchPickerOpen.set(false); this.newBranchName.set(''); }
       if (this.visible && this.projectId) { void this.load(); this.timer = setInterval(() => { if (!this.busy()) void this.load(false); }, 6000); }
       else { clearInterval(this.timer); this.diff.set(''); this.commits.set([]); }
     }
@@ -62,6 +66,12 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     finally { if (revision === this.revision) this.loading.set(false); }
   }
   async initialize() { await this.mutate('init', {}); }
+  async checkoutBranch(branch: string, create = false) {
+    if (this.busy() || !branch.trim()) return;
+    const ok = await this.mutate('checkout', { branch: branch.trim(), create }, create ? `Created and switched to ${branch.trim()}.` : `Switched to ${branch.trim()}.`);
+    if (ok) { this.branchPickerOpen.set(false); this.newBranchName.set(''); }
+  }
+  createBranch() { return this.checkoutBranch(this.newBranchName(), true); }
   async loadHistory() { try { this.commits.set(await this.api<Commit[]>(`/projects/${this.projectId}/git/log`)); } catch (e) { this.error.set((e as Error).message); } }
   async showDiff(change: GitChange, staged: boolean) {
     this.selectedPath.set(change.path); this.selectedStaged.set(staged); this.commitDetail.set(''); this.diff.set('Loading diff…');
