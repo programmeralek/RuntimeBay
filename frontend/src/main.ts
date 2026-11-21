@@ -18,6 +18,7 @@ import { Tunnels } from './tunnels';
 import { Appearance } from './appearance';
 import { LoadingService } from './loading/loading.service';
 import { adjacentTerminal, workspaceShortcut, WorkspaceCommand } from './shortcuts';
+import './workflow-cockpit.css';
 
 const session = window.runtimeBaySession || new URLSearchParams(location.hash.slice(1)).get('session') || '';
 if (location.hash) history.replaceState(null, '', location.pathname);
@@ -64,6 +65,15 @@ class App implements OnDestroy {
   logs = signal<LogEntry[]>([]);
   logFilter = signal('');
   follow = signal(true);
+  readonly cockpitPanelDefinitions = [
+    { id: 'targets', label: 'Resource targets' },
+    { id: 'services', label: 'Services' },
+    { id: 'attachments', label: 'Attached resources' },
+    { id: 'containers', label: 'Containers' },
+    { id: 'inspector', label: 'Service logs' },
+  ] as const;
+  readonly cockpitArrangeOpen = signal(false);
+  private readonly cockpitLayouts = signal<Record<string, { order: string[]; hidden: string[] }>>({});
   project = computed(() => this.projects().find(p => p.id === this.projectId()) || null);
   workflow = computed(() => this.workflows().find(w => w.definition.projectId === this.projectId()) || null);
   environmentName = computed(() => this.workflow()?.definition.environments.find(e => e.id === this.workflow()?.definition.defaultEnvironmentId)?.name || 'Local');
@@ -73,6 +83,28 @@ class App implements OnDestroy {
       return workflow.definition.environments.find(environment => environment.id === workflow.definition.defaultEnvironmentId)?.name || 'Environment';
     }
     return `${project.services.length} ${project.services.length === 1 ? 'service' : 'services'}`;
+  }
+  private cockpitLayout() {
+    const id = this.projectId() || '';
+    return this.cockpitLayouts()[id] || { order: this.cockpitPanelDefinitions.map(panel => panel.id), hidden: [] };
+  }
+  cockpitOrder(id: string) { return this.cockpitLayout().order.indexOf(id); }
+  cockpitHidden(id: string) { return this.cockpitLayout().hidden.includes(id); }
+  moveCockpitPanel(id: string, direction: -1 | 1) {
+    const projectId = this.projectId(); if (!projectId) return;
+    const current = this.cockpitLayout(), order = [...current.order], index = order.indexOf(id), next = index + direction;
+    if (index < 0 || next < 0 || next >= order.length) return;
+    [order[index], order[next]] = [order[next], order[index]];
+    this.cockpitLayouts.update(layouts => ({ ...layouts, [projectId]: { ...current, order } }));
+  }
+  toggleCockpitPanel(id: string) {
+    const projectId = this.projectId(); if (!projectId) return;
+    const current = this.cockpitLayout(), hidden = current.hidden.includes(id) ? current.hidden.filter(value => value !== id) : [...current.hidden, id];
+    this.cockpitLayouts.update(layouts => ({ ...layouts, [projectId]: { ...current, hidden } }));
+  }
+  resetCockpitLayout() {
+    const projectId = this.projectId(); if (!projectId) return;
+    this.cockpitLayouts.update(layouts => ({ ...layouts, [projectId]: { order: this.cockpitPanelDefinitions.map(panel => panel.id), hidden: [] } }));
   }
   workflowActive = computed(() => this.project()?.services.some(s => this.active(s)) ?? false);
   workflowSaved(value: WorkflowView) { this.workflows.update(list => list.map(w => w.definition.id === value.definition.id ? value : w)); }

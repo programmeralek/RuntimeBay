@@ -82,9 +82,15 @@
       @else if (!project()) {
         <section class="welcome"><div class="welcome-art" aria-hidden="true"><span>⌘</span><i></i><b></b></div><div class="eyebrow">LET’S CLEAR THE DECK</div><h2>Your next project starts here.</h2><p>Choose a folder, add the commands you already use,<br>and manage your services from one place.</p><button class="primary" (click)="openProject()">＋ Import your first project</button><small>Your files stay where they are.</small></section>
       } @else {
+        <section class="cockpit-arrange" aria-label="Workflow cockpit layout">
+          <button class="secondary" [attr.aria-expanded]="cockpitArrangeOpen()" (click)="cockpitArrangeOpen.update(value => !value)">{{ cockpitArrangeOpen() ? 'Close panel controls' : 'Arrange panels' }}</button>
+          @if (cockpitArrangeOpen()) { <div class="cockpit-arrange-popover"><p>Choose which panels appear and arrange their order. Drag sizing is available at each panel’s bottom edge.</p>@for (panel of cockpitPanelDefinitions; track panel.id) { <div class="cockpit-arrange-row"><strong>{{ panel.label }}</strong><div><button class="secondary" (click)="moveCockpitPanel(panel.id, -1)" [disabled]="cockpitOrder(panel.id) === 0" [attr.aria-label]="'Move ' + panel.label + ' earlier'">↑</button><button class="secondary" (click)="moveCockpitPanel(panel.id, 1)" [disabled]="cockpitOrder(panel.id) === cockpitPanelDefinitions.length - 1" [attr.aria-label]="'Move ' + panel.label + ' later'">↓</button><button class="text-button" (click)="toggleCockpitPanel(panel.id)">{{ cockpitHidden(panel.id) ? 'Show' : 'Hide' }}</button></div></div> }<button class="text-button" (click)="resetCockpitLayout()">Reset layout</button></div> }
+        </section>
+        <div class="workflow-cockpit-layout">
         @if (workflow(); as w) {
+          <section class="cockpit-support-tools" aria-label="Workflow consoles"><div><span class="eyebrow">WORKFLOW TOOLS</span><p>{{ project()!.name }} · {{ environmentName() }} · Database workspace and terminal remain available without starting resources.</p></div><div><button class="secondary" (click)="setWorkflowView('databases')">Open database workspace</button><button class="secondary" (click)="openWorkflowTerminal()" [disabled]="terminals.creating()">Open workflow terminal</button></div></section>
           <app-workflow-yaml [projectId]="project()!.id" [session]="sessionToken" [beforeRun]="startWorkflowContainers" [afterRun]="startRemainingWorkflowServices" (changed)="refresh()" (statusChange)="yamlStatus.set($event)"></app-workflow-yaml>
-          <section class="workflow-targets" aria-labelledby="workflow-targets-title">
+          <section class="workflow-targets cockpit-panel" [hidden]="cockpitHidden('targets')" [style.order]="cockpitOrder('targets')" aria-labelledby="workflow-targets-title">
             <div class="section-heading"><div><h2 id="workflow-targets-title">Resource targets <span class="count">{{ w.resources.length }}</span></h2><p>Bindings in {{ environmentName() }}. Each resource keeps its own target.</p></div></div>
             @if (!w.resources.length) { <p class="workflow-target-empty">Add a service or link a container to build this workflow.</p> }
             @for (r of w.resources; track r.id) {
@@ -96,7 +102,7 @@
             }
           </section>
         }
-        <section class="services-section">
+        <section class="services-section cockpit-panel" [hidden]="cockpitHidden('services')" [style.order]="cockpitOrder('services')">
           <div class="section-heading"><div><h2>Services <span class="count">{{ project()!.services.length }}</span></h2><p>The moving parts of your project.</p></div><div class="section-actions">
             <button class="primary" (click)="openService()" [disabled]="!connected()">＋ Add service</button>
           </div></div>
@@ -122,10 +128,10 @@
             </div>
           }
         </section>
-        <app-attachments [projectId]="project()!.id" [environmentId]="workflow()?.definition?.defaultEnvironmentId || ''" [workflowRevision]="workflow()?.revision || ''" [session]="sessionToken" (navigate)="inspectAttachment($event)" (changed)="refresh()"></app-attachments>
-        <app-workflow-containers [projectId]="project()!.id" [session]="sessionToken" [environmentId]="workflow()?.definition?.defaultEnvironmentId || ''" [workflowRevision]="workflow()?.revision || ''"></app-workflow-containers>
+        <app-attachments class="cockpit-panel" [hidden]="cockpitHidden('attachments')" [style.order]="cockpitOrder('attachments')" [projectId]="project()!.id" [environmentId]="workflow()?.definition?.defaultEnvironmentId || ''" [workflowRevision]="workflow()?.revision || ''" [session]="sessionToken" (navigate)="inspectAttachment($event)" (changed)="refresh()"></app-attachments>
+        <app-workflow-containers class="cockpit-panel" [hidden]="cockpitHidden('containers')" [style.order]="cockpitOrder('containers')" [projectId]="project()!.id" [session]="sessionToken" [environmentId]="workflow()?.definition?.defaultEnvironmentId || ''" [workflowRevision]="workflow()?.revision || ''"></app-workflow-containers>
         @if (service(); as s) {
-          <section class="inspector"><div class="inspector-heading"><div><span class="eyebrow">RUNTIME INSPECTOR</span><h2>{{ s.name }} <span class="inspector-state">{{ s.pid ? 'PID ' + s.pid : s.state }}</span></h2></div><div class="section-actions"><button class="text-button" (click)="openService(s)" [disabled]="active(s) || busy(s)">Edit service</button><button class="text-button" (click)="askDelete()" [disabled]="active(s) || busy(s)" aria-label="Remove service">Remove</button></div></div>
+          <section class="inspector cockpit-panel" [hidden]="cockpitHidden('inspector')" [style.order]="cockpitOrder('inspector')"><div class="inspector-heading"><div><span class="eyebrow">RUNTIME INSPECTOR</span><h2>{{ s.name }} <span class="inspector-state">{{ s.pid ? 'PID ' + s.pid : s.state }}</span></h2></div><div class="section-actions"><button class="text-button" (click)="openService(s)" [disabled]="active(s) || busy(s)">Edit service</button><button class="text-button" (click)="askDelete()" [disabled]="active(s) || busy(s)" aria-label="Remove service">Remove</button></div></div>
             @if (s.portInfo; as info) {
               <div class="port-inspector"><span>TCP <strong>:{{ info.number }}</strong></span><span>{{ info.status === 'listening' ? 'Listening' : info.status === 'available' ? 'No listener detected' : 'Port inspection unavailable' }}</span>
                 @for (owner of info.owners; track owner.pid) { <span class="port-owner">{{ owner.command }} · PID {{ owner.pid }} <b>{{ owner.managed ? 'this service' : 'external' }}</b></span> }
@@ -140,6 +146,7 @@
             <div class="inspector-foot"><span>Directory <code>{{ s.directory }}</code></span><span>Up to 1,000 lines · refreshes every 1.5 seconds</span></div>
           </section>
         }
+        </div>
       }
       <footer>Less juggling. More building.<span>RUNTIME BAY</span></footer>
     </div>
