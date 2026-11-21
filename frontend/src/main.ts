@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { Project, Service, WorkflowView, LogEntry, LogResponse } from './types';
 import { Terminals, TerminalWorkspace } from './terminals';
+import type { ShellTab } from './terminals';
 import { WorkflowYaml, YamlStatus } from './workflow-yaml';
 import { Attachments, AttachmentSource } from './attachments';
 import { Environments } from './environments';
@@ -22,15 +23,24 @@ const session = window.runtimeBaySession || new URLSearchParams(location.hash.sl
 if (location.hash) history.replaceState(null, '', location.pathname);
 
 interface TunnelStatus { definition: { id: string; name: string }; state: 'running' | 'stopped' | 'error'; error: string | null; unreadError: boolean }
+interface TemporaryWorkspace { terminalId: string; name: string; directory: string; document: EditorDocument | null; mode: 'terminal' | 'editor'; dirty: boolean }
+interface TerminalEditorRequest { document: EditorDocument; terminalId: string; terminalName: string; directory: string }
 
 @Component({
   selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe, Containers, Hosts, Tunnels, Terminals, WorkflowContainers, Databases, WorkflowGit, Editor, Environments, Attachments, WorkflowYaml],
   templateUrl: './app.html'
 })
 class App implements OnDestroy {
-  view = signal<'runtime' | 'containers' | 'hosts' | 'tunnels' | 'terminal' | 'workflow-terminal' | 'databases' | 'git' | 'editor'>('runtime');
+  view = signal<'runtime' | 'containers' | 'hosts' | 'tunnels' | 'terminal' | 'workflow-terminal' | 'databases' | 'git' | 'editor' | 'temporary'>('runtime');
   pendingEditorDocument = signal<EditorDocument | null>(null);
-  private editorListener = (event: Event) => { this.pendingEditorDocument.set((event as CustomEvent<EditorDocument>).detail); this.openEditor(); };
+  temporaryWorkspaces = signal<TemporaryWorkspace[]>([]);
+  activeTemporaryId = signal<string | null>(null);
+  activeTemporary = computed(() => this.temporaryWorkspaces().find(item => item.terminalId === this.activeTemporaryId()) || null);
+  temporaryRenameId = signal<string | null>(null);
+  temporaryNameDraft = signal('');
+  temporaryError = signal('');
+  temporaryBusy = signal(false);
+  private editorListener = (event: Event) => this.openTerminalEditor((event as CustomEvent<TerminalEditorRequest>).detail);
   readonly loader = inject(LoadingService);
   private loadingTasks = this.loader.scope();
   readonly appearance = new Appearance(session, this.loader);
@@ -57,19 +67,42 @@ class App implements OnDestroy {
   project = computed(() => this.projects().find(p => p.id === this.projectId()) || null);
   workflow = computed(() => this.workflows().find(w => w.definition.projectId === this.projectId()) || null);
   environmentName = computed(() => this.workflow()?.definition.environments.find(e => e.id === this.workflow()?.definition.defaultEnvironmentId)?.name || 'Local');
+  workflowSidebarSubtitle(project: Project) {
+    const workflow = this.workflows().find(item => item.definition.projectId === project.id);
+    if (workflow && workflow.definition.environments.length > 1) {
+      return workflow.definition.environments.find(environment => environment.id === workflow.definition.defaultEnvironmentId)?.name || 'Environment';
+    }
+    return `${project.services.length} ${project.services.length === 1 ? 'service' : 'services'}`;
+  }
   workflowActive = computed(() => this.project()?.services.some(s => this.active(s)) ?? false);
   workflowSaved(value: WorkflowView) { this.workflows.update(list => list.map(w => w.definition.id === value.definition.id ? value : w)); }
+  showWorkflowEnvironmentSelector() { return !!this.project() && !!this.workflow() && ['runtime', 'databases', 'workflow-terminal', 'git', 'editor'].includes(this.view()); }
+  toggleEnvironmentMenu() { this.environmentError.set(''); this.environmentMenuOpen.update(open => !open); }
+  async selectEnvironment(environmentId: string) {
+    if (this.environmentBusy() || !this.environmentManager) return;
+    this.environmentBusy.set(true); this.environmentError.set('');
+    try { await this.environmentManager.activate(environmentId); this.environmentMenuOpen.set(false); }
+    catch (error) { this.environmentError.set((error as Error).message); }
+    finally { this.environmentBusy.set(false); }
+  }
+  addWorkflowEnvironment() { this.environmentMenuOpen.set(false); this.environmentError.set(''); this.environmentManager?.show(true); }
+  manageWorkflowEnvironments() { this.environmentMenuOpen.set(false); this.environmentError.set(''); this.environmentManager?.show(); }
+  deleteWorkflowEnvironment(environmentId: string) { this.environmentMenuOpen.set(false); this.environmentError.set(''); this.environmentManager?.requestRemove(environmentId); }
   yamlStatus = signal<YamlStatus>({ projectId: '', configured: false, managedServiceIds: [], running: false });
   yamlConfigured = computed(() => this.yamlStatus().projectId === this.projectId() && this.yamlStatus().configured);
   yamlRunning = computed(() => this.yamlStatus().projectId === this.projectId() && this.yamlStatus().running);
   yamlManaged(service: Service) { return this.yamlStatus().projectId === this.projectId() && this.yamlStatus().managedServiceIds.includes(service.id); }
   @ViewChild(WorkflowYaml) yamlConfig?: WorkflowYaml;
   @ViewChild(WorkflowContainers) workflowContainers?: WorkflowContainers;
+  @ViewChild(Environments) environmentManager?: Environments;
   canStartAll = computed(() => !!this.workflow() && (this.project()?.services.filter(s => !this.active(s)).every(s => this.canStart(s)) ?? false));
   service = computed(() => this.project()?.services.find(s => s.id === this.serviceId()) || null);
   running = computed(() => this.projects().flatMap(p => p.services).filter(s => this.active(s)).length);
   activeTunnelCount = signal(0);
   unreadTunnelErrorCount = signal(0);
+  environmentMenuOpen = signal(false);
+  environmentBusy = signal(false);
+  environmentError = signal('');
   serviceCount = computed(() => this.projects().reduce((sum, p) => sum + p.services.length, 0));
   visibleLogs = computed(() => {
     const query = this.logFilter().toLowerCase();
@@ -97,6 +130,7 @@ class App implements OnDestroy {
   };
   private keyListener = (event: KeyboardEvent) => {
     if (this.loader.active) return;
+    if (event.key === 'Escape' && this.environmentMenuOpen()) { event.preventDefault(); this.environmentMenuOpen.set(false); return; }
     if (event.key === 'Tab' && this.sheet()) {
       const controls = Array.from(document.querySelectorAll<HTMLElement>('.modal button:not([disabled]), .modal input:not([disabled]), .modal textarea:not([disabled])'));
       const first = controls[0], last = controls.at(-1);
@@ -108,6 +142,9 @@ class App implements OnDestroy {
     const command = workspaceShortcut(event);
     if (command) { event.preventDefault(); this.runCommand(command); }
     if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key === ',' && !event.defaultPrevented) { event.preventDefault(); this.appearance.show(); }
+  };
+  private environmentOutsideListener = (event: MouseEvent) => {
+    if (!(event.target instanceof Element) || !event.target.closest('.environment-switcher')) this.environmentMenuOpen.set(false);
   };
   private commandListener = (event: Event) => this.runCommand((event as CustomEvent<WorkspaceCommand>).detail);
   private runCommand(command: WorkspaceCommand) {
@@ -130,6 +167,7 @@ class App implements OnDestroy {
     window.addEventListener('runtimebay:folder', this.folderListener);
     window.addEventListener('keydown', this.keyListener);
     window.addEventListener('runtimebay:command', this.commandListener);
+    window.addEventListener('click', this.environmentOutsideListener);
     void this.loadingTasks.run('Opening your workspace…', () => this.refresh());
     this.timer = setInterval(() => void this.refresh(), 1500);
     void this.refreshTunnelStatus();
@@ -141,6 +179,7 @@ class App implements OnDestroy {
     window.removeEventListener('runtimebay:folder', this.folderListener);
     window.removeEventListener('keydown', this.keyListener);
     window.removeEventListener('runtimebay:command', this.commandListener);
+    window.removeEventListener('click', this.environmentOutsideListener);
   }
   private async refreshTunnelStatus() {
     try {
@@ -229,7 +268,7 @@ class App implements OnDestroy {
     await this.terminals.create(this.projectId());
   }
   workflowTerminal() { return this.terminals.tabs().find(tab => tab.workflowId === this.projectId()) || null; }
-  sidebarTerminals() { return this.terminals.tabs().filter(tab => !tab.workflowId); }
+  sidebarTerminals() { const merged = new Set(this.temporaryWorkspaces().map(item => item.terminalId)); return this.terminals.tabs().filter(tab => !tab.workflowId && !merged.has(tab.id)); }
   async openWorkflowTerminal() {
     const projectId=this.projectId(); if(!projectId)return;
     const tab=this.workflowTerminal() || await this.terminals.createWorkflow(projectId);
@@ -237,6 +276,65 @@ class App implements OnDestroy {
   }
   async openHostTerminal(hostId: string) { this.view.set('terminal'); await this.terminals.create(null, hostId); }
   selectTerminal(id: string) { this.terminals.selected.set(id); this.view.set('terminal'); }
+  private openTerminalEditor(request: TerminalEditorRequest) {
+    if (!request?.document) return;
+    const terminal = this.terminals.tabs().find(tab => tab.id === request.terminalId);
+    if (terminal?.workflowId) {
+      this.selectProject(terminal.workflowId, false);
+      this.pendingEditorDocument.set(request.document);
+      this.view.set('editor');
+      this.rememberWorkflowView();
+      return;
+    }
+    if (!terminal) return;
+    const workspace: TemporaryWorkspace = { terminalId: request.terminalId, name: request.terminalName, directory: request.directory, document: request.document, mode: 'editor', dirty: false };
+    this.temporaryWorkspaces.update(items => items.some(item => item.terminalId === workspace.terminalId)
+      ? items.map(item => item.terminalId === workspace.terminalId ? { ...item, name: workspace.name, directory: workspace.directory, document: workspace.document, mode: 'editor' } : item)
+      : [...items, workspace]);
+    this.activeTemporaryId.set(workspace.terminalId);
+    this.terminals.selected.set(workspace.terminalId);
+    this.terminals.fullscreen.set(false);
+    this.view.set('temporary');
+  }
+  showTemporaryWorkspace(terminalId: string) {
+    const item = this.temporaryWorkspaces().find(value => value.terminalId === terminalId);
+    if (!item) return;
+    this.activeTemporaryId.set(terminalId);
+    if (this.terminals.tabs().some(tab => tab.id === terminalId)) this.terminals.selected.set(terminalId);
+    this.terminals.fullscreen.set(false);
+    this.view.set('temporary');
+  }
+  setTemporaryMode(mode: 'terminal' | 'editor') {
+    const id = this.activeTemporaryId();
+    if (!id) return;
+    this.temporaryWorkspaces.update(items => items.map(item => item.terminalId === id ? { ...item, mode } : item));
+    if (mode === 'terminal' && this.terminals.tabs().some(tab => tab.id === id)) this.terminals.selected.set(id);
+    this.view.set('temporary');
+  }
+  setTemporaryDirty(terminalId: string, dirty: boolean) {
+    this.temporaryWorkspaces.update(items => items.map(item => item.terminalId === terminalId ? { ...item, dirty } : item));
+  }
+  beginTemporaryRename() {
+    const item = this.activeTemporary(); if (!item) return;
+    this.temporaryNameDraft.set(item.name); this.temporaryError.set(''); this.temporaryRenameId.set(item.terminalId);
+  }
+  cancelTemporaryRename() { if (!this.temporaryBusy()) this.temporaryRenameId.set(null); }
+  async promoteTemporary() {
+    const item = this.activeTemporary(); if (!item || this.temporaryBusy()) return;
+    const name = this.temporaryNameDraft().trim();
+    if (!name || name.length > 80) { this.temporaryError.set('Enter a workflow name of up to 80 characters.'); return; }
+    if (item.dirty) { this.temporaryError.set('Save your editor changes before accepting and creating this workflow.'); return; }
+    this.temporaryBusy.set(true); this.temporaryError.set('');
+    try {
+      const project = await this.api<Project>('/projects', 'POST', { name, path: item.directory });
+      const terminal = await this.terminals.api<ShellTab>('/' + item.terminalId + '/promote', 'POST', { projectId: project.id, name });
+      this.terminals.tabs.update(tabs => tabs.map(tab => tab.id === terminal.id ? terminal : tab));
+      this.temporaryWorkspaces.update(items => items.filter(value => value.terminalId !== item.terminalId));
+      this.activeTemporaryId.set(null); this.temporaryRenameId.set(null);
+      await this.refresh(); this.selectProject(project.id);
+    } catch (error) { this.temporaryError.set((error as Error).message); }
+    finally { this.temporaryBusy.set(false); }
+  }
   private readWorkflowViews(): Record<string, 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor'> {
     try {
       const value = JSON.parse(localStorage.getItem('runtimebay.workflowViews') || '{}');

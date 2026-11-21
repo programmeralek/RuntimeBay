@@ -347,6 +347,7 @@ final class ApiServer implements AutoCloseable {
             }
         }
         if(parts.length==3 && method.equals("PUT")){json(e,200,terminals.rename(parts[2],string(body(e),"name")));return;}
+        if(parts.length==4 && parts[3].equals("promote") && method.equals("POST")){var value=body(e);json(e,200,terminals.promote(parts[2],string(value,"projectId"),string(value,"name")));return;}
         if(parts.length==4 && parts[3].equals("open") && method.equals("POST")){
             body(e);var tab=terminals.definition(parts[2]);var host=machineHosts.get(tab.hostId());hostPasswords.restore(host);
             json(e,200,terminals.open(tab.id(),host,hostSshControls));return;

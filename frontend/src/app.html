@@ -1,4 +1,4 @@
-<div class="app-shell" [class.terminal-fullscreen]="terminals.fullscreen()" [attr.inert]="sheet() || appearance.open() ? '' : null">
+<div class="app-shell" [class.terminal-fullscreen]="terminals.fullscreen()" [class.temporary-workspace]="view() === 'temporary'" [attr.inert]="sheet() || appearance.open() ? '' : null">
   <aside class="sidebar">
     <div class="brand"><span class="bay-logo brand-mark" aria-hidden="true"></span><div>Runtime Bay<small>A HOME FOR YOUR RUNTIMES</small></div></div>
     <button class="import-shortcut" (click)="openNew()"><span>＋</span> New <kbd>⌘ K</kbd></button>
@@ -11,12 +11,13 @@
       @for (p of projects(); track p.id) {
         <button class="project-link" [class.selected]="p.id === projectId() && (view() === 'runtime' || view() === 'databases' || view() === 'workflow-terminal' || view() === 'git' || view() === 'editor')" (click)="selectProject(p.id)">
           <span class="project-monogram">{{ p.name.slice(0, 2).toUpperCase() }}</span>
-          <span class="project-link-text">{{ p.name }}<small>{{ p.services.length }} {{ p.services.length === 1 ? 'service' : 'services' }}</small></span>
+          <span class="project-link-text">{{ p.name }}<small>{{ workflowSidebarSubtitle(p) }}</small></span>
           <span class="chevron">›</span>
         </button>
       }
       @if (!projects().length) { <p class="sidebar-empty">Your projects will appear here.</p> }
     </nav>
+    @if (temporaryWorkspaces().length) { <div class="sidebar-label">TEMPORARIES <span>{{ temporaryWorkspaces().length }}</span></div><nav aria-label="Temporary workspaces">@for (temporary of temporaryWorkspaces(); track temporary.terminalId) { <button class="project-link temporary-link" [class.selected]="view() === 'temporary' && activeTemporaryId() === temporary.terminalId" (click)="showTemporaryWorkspace(temporary.terminalId)"><span class="project-monogram">TE</span><span class="project-link-text">{{ temporary.name }}<small>Terminal + Editor</small></span><span class="chevron">›</span></button> }</nav> }
     <div class="terminal-section-heading"><span>TERMINALS</span><button class="new-terminal" (click)="newTerminal()" [disabled]="terminals.creating()" aria-label="New terminal" title="Open a terminal on your default host">＋ Terminal</button></div>
     <nav class="shell-tabs" aria-label="Terminal tabs">
       @for (tab of sidebarTerminals(); track tab.id) {
@@ -30,7 +31,33 @@
     <div class="sidebar-bottom"><button class="customize-button" (click)="appearance.show()">◒ Customize appearance <span>⌘ ,</span></button><div class="engine-state"><i [class.online]="connected()"></i>{{ connected() ? 'Local engine connected' : loading() ? 'Connecting…' : 'Engine disconnected' }}</div><small>MACOS · V0.5.0</small></div>
   </aside>
   <main>
-    <header class="topbar"><div><span class="crumb">{{ view() === 'runtime' || view() === 'databases' || view() === 'workflow-terminal' || view() === 'git' || view() === 'editor' ? 'Workflow' : 'Workspace' }}</span><span class="slash">/</span><strong>{{ view() === 'containers' ? 'Containers' : view() === 'hosts' ? 'Hosts' : view() === 'tunnels' ? 'Tunnels' : view() === 'terminal' ? 'Terminals' : project()?.name || 'Overview' }}</strong></div><span class="local-pill"><i></i> {{ view() === 'hosts' ? 'YOUR MACHINES' : view() === 'tunnels' ? 'SSH CONNECTIONS' : view() === 'terminal' ? (terminals.selectedTab()?.hostName || 'This Mac') : 'ON YOUR MAC' }}</span></header>
+    <header class="topbar">
+      <div><span class="crumb">{{ view() === 'runtime' || view() === 'databases' || view() === 'workflow-terminal' || view() === 'git' || view() === 'editor' ? 'Workflow' : 'Workspace' }}</span><span class="slash">/</span><strong>{{ view() === 'containers' ? 'Containers' : view() === 'hosts' ? 'Hosts' : view() === 'tunnels' ? 'Tunnels' : view() === 'terminal' ? 'Terminals' : view() === 'temporary' ? activeTemporary()?.name || 'Temporary workspace' : project()?.name || 'Overview' }}</strong></div>
+      <div class="topbar-right">
+        @if (showWorkflowEnvironmentSelector()) { @if (workflow()!; as activeWorkflow) {
+          <div class="environment-switcher">
+            <button class="environment-switcher-trigger" [class.open]="environmentMenuOpen()" [attr.aria-expanded]="environmentMenuOpen()" aria-haspopup="menu" aria-label="Select workflow environment" (click)="toggleEnvironmentMenu()"><span class="environment-trigger-label">ENVIRONMENT</span><strong>{{ activeWorkflow.definition.environments.find(env => env.id === activeWorkflow.definition.defaultEnvironmentId)?.name || 'Choose environment' }}</strong><span class="environment-trigger-chevron" aria-hidden="true">⌄</span></button>
+            @if (environmentMenuOpen()) {
+              <div class="environment-menu" role="menu" aria-label="Workflow environments" (click)="$event.stopPropagation()">
+                <div class="environment-menu-heading"><strong>{{ activeWorkflow.definition.environments.length }} environments</strong><small>Resource targets for {{ activeWorkflow.definition.name }}</small></div>
+                @for (environment of activeWorkflow.definition.environments; track environment.id) {
+                  <div class="environment-menu-row">
+                    <button class="environment-menu-option" role="menuitemradio" [attr.aria-checked]="environment.id === activeWorkflow.definition.defaultEnvironmentId" [class.selected]="environment.id === activeWorkflow.definition.defaultEnvironmentId" [disabled]="environmentBusy() || workflowActive() || environment.id === activeWorkflow.definition.defaultEnvironmentId" (click)="selectEnvironment(environment.id)"><span class="environment-menu-check" aria-hidden="true">{{ environment.id === activeWorkflow.definition.defaultEnvironmentId ? '✓' : '' }}</span><span><strong>{{ environment.name }}</strong><small>{{ environment.id === activeWorkflow.definition.defaultEnvironmentId ? 'Currently selected' : 'Switch resource targets' }}</small></span></button>
+                    <button class="environment-menu-delete" role="menuitem" [attr.aria-label]="'Delete environment ' + environment.name" title="Delete environment" [disabled]="environmentBusy() || workflowActive() || activeWorkflow.definition.environments.length <= 1" (click)="deleteWorkflowEnvironment(environment.id)">×</button>
+                  </div>
+                }
+                <div class="environment-menu-divider"></div><button class="environment-menu-action" role="menuitem" (click)="addWorkflowEnvironment()" [disabled]="environmentBusy() || activeWorkflow.definition.environments.length >= 20">＋ Add environment</button><button class="environment-menu-action" role="menuitem" (click)="manageWorkflowEnvironments()" [disabled]="environmentBusy()">Manage environments…</button>
+                @if (workflowActive()) { <p class="environment-menu-note">Stop this workflow’s services before switching or deleting environments.</p> }
+                @if (environmentError()) { <p class="environment-menu-error" role="alert">{{ environmentError() }}</p> }
+              </div>
+            }
+          </div>
+          <app-environments #environmentManager [workflow]="activeWorkflow" [session]="sessionToken" [active]="workflowActive()" [hideTrigger]="true" (saved)="workflowSaved($event)"></app-environments>
+        } }
+        <span class="local-pill"><i></i> {{ view() === 'hosts' ? 'YOUR MACHINES' : view() === 'tunnels' ? 'SSH CONNECTIONS' : view() === 'terminal' ? (terminals.selectedTab()?.hostName || 'This Mac') : view() === 'temporary' ? 'TEMPORARY WORKSPACE' : 'ON YOUR MAC' }}</span>
+      </div>
+    </header>
+    @if (view() === 'temporary' && activeTemporary(); as temporary) { <section class="temporary-workspace-bar"><div class="temporary-workspace-title"><span class="eyebrow">TEMPORARY WORKSPACE</span>@if (temporaryRenameId() === temporary.terminalId) { <div class="temporary-rename"><input aria-label="Temporary workspace name" maxlength="80" [value]="temporaryNameDraft()" (input)="temporaryNameDraft.set($any($event.target).value)" (keydown.enter)="$event.preventDefault(); promoteTemporary()" (keydown.escape)="cancelTemporaryRename()" autofocus><button class="temporary-accept" (click)="promoteTemporary()" [disabled]="temporaryBusy()" title="Accept name and create workflow" aria-label="Accept name and create workflow">✓ Create workflow</button><button class="temporary-cancel" (click)="cancelTemporaryRename()" [disabled]="temporaryBusy()" title="Cancel rename" aria-label="Cancel rename">×</button></div> } @else { <h1><button class="temporary-name-button" (click)="beginTemporaryRename()" title="Rename and create a workflow">{{ temporary.name }}</button></h1> }<p>{{ temporary.directory }} · Rename and accept to save this as a workflow.</p></div></section><div class="workflow-page-tabs temporary-tabs" role="tablist" aria-label="Temporary workspace views"><button role="tab" [class.selected]="temporary.mode === 'terminal'" [attr.aria-selected]="temporary.mode === 'terminal'" (click)="setTemporaryMode('terminal')">Terminal</button><button role="tab" [class.selected]="temporary.mode === 'editor'" [attr.aria-selected]="temporary.mode === 'editor'" (click)="setTemporaryMode('editor')">Editor</button></div>@if (temporaryError()) { <div class="notice" role="alert">{{ temporaryError() }}<button (click)="temporaryError.set('')" aria-label="Dismiss error">×</button></div> } }
     @if (view() === 'hosts') {
       <app-hosts [session]="sessionToken" [terminalBusy]="terminals.creating()" [createRequested]="hostCreateRequested()" (createHandled)="hostCreateRequested.set(false)" (openTerminal)="openHostTerminal($event)"></app-hosts>
     } @else if (view() === 'containers') {
@@ -58,7 +85,7 @@
         @if (workflow(); as w) {
           <app-workflow-yaml [projectId]="project()!.id" [session]="sessionToken" [beforeRun]="startWorkflowContainers" [afterRun]="startRemainingWorkflowServices" (changed)="refresh()" (statusChange)="yamlStatus.set($event)"></app-workflow-yaml>
           <section class="workflow-targets" aria-labelledby="workflow-targets-title">
-            <div class="section-heading"><div><h2 id="workflow-targets-title">Resource targets <span class="count">{{ w.resources.length }}</span></h2><p>Bindings in {{ environmentName() }}. Each resource keeps its own target.</p></div><app-environments [workflow]="w" [session]="sessionToken" [active]="workflowActive()" (saved)="workflowSaved($event)"></app-environments></div>
+            <div class="section-heading"><div><h2 id="workflow-targets-title">Resource targets <span class="count">{{ w.resources.length }}</span></h2><p>Bindings in {{ environmentName() }}. Each resource keeps its own target.</p></div></div>
             @if (!w.resources.length) { <p class="workflow-target-empty">Add a service or link a container to build this workflow.</p> }
             @for (r of w.resources; track r.id) {
               <div class="workflow-target-row" [class.unresolved]="r.status === 'unresolved' || r.status === 'unsupported'">
@@ -120,8 +147,8 @@
     @if ((view() === 'workflow-terminal' || view() === 'databases' || view() === 'git' || view() === 'editor') && project()) { <div class="workflow-page-tabs workflow-terminal-tabs" role="tablist" aria-label="Workflow views"><button role="tab" [attr.aria-selected]="view() === 'runtime'" (click)="setWorkflowView('runtime')">Runtime</button><button role="tab" [attr.aria-selected]="view() === 'databases'" [class.selected]="view() === 'databases'" (click)="setWorkflowView('databases')">Databases</button><button role="tab" [attr.aria-selected]="view() === 'workflow-terminal'" [class.selected]="view() === 'workflow-terminal'" (click)="openWorkflowTerminal()">Terminal</button><button role="tab" [attr.aria-selected]="view() === 'git'" [class.selected]="view() === 'git'" (click)="setWorkflowView('git')">Git</button><button role="tab" [attr.aria-selected]="view() === 'editor'" [class.selected]="view() === 'editor'" (click)="openEditor()">Editor</button></div> }
     <app-databases [projectId]="projectId() || ''" [projectName]="project()?.name || ''" [projectPath]="project()?.path || ''" [session]="sessionToken" [visible]="view() === 'databases'" (runtime)="setWorkflowView('runtime')" (terminal)="openWorkflowTerminal()"></app-databases>
     <app-workflow-git [projectId]="projectId() || ''" [projectName]="project()?.name || ''" [projectPath]="project()?.path || ''" [session]="sessionToken" [visible]="view() === 'git'"></app-workflow-git>
-    @defer (when view() === 'editor') { <app-editor [projectId]="projectId() || ''" [session]="sessionToken" [visible]="view() === 'editor'" (opened)="openEditor()" [requested]="pendingEditorDocument()"></app-editor> }
-    <app-terminals [workspace]="terminals" [visible]="view() === 'terminal' || view() === 'workflow-terminal'" [suggestionsEnabled]="appearance.preferences().suggestionsEnabled"></app-terminals>
+    @defer (when view() === 'editor' || view() === 'temporary') { @if (view() === 'editor') { <app-editor [projectId]="projectId() || ''" [session]="sessionToken" [visible]="view() === 'editor'" [requested]="pendingEditorDocument()"></app-editor> } @for (temporary of temporaryWorkspaces(); track temporary.terminalId) { <app-editor [projectId]="''" [session]="sessionToken" [visible]="view() === 'temporary' && activeTemporaryId() === temporary.terminalId && temporary.mode === 'editor'" [requested]="temporary.document" [temporary]="true" [workspaceName]="temporary.name" [workspaceDirectory]="temporary.directory" (dirtyChange)="setTemporaryDirty(temporary.terminalId, $event)"></app-editor> } }
+    <app-terminals [workspace]="terminals" [visible]="view() === 'terminal' || view() === 'workflow-terminal' || (view() === 'temporary' && activeTemporary()?.mode === 'terminal')" [suggestionsEnabled]="appearance.preferences().suggestionsEnabled"></app-terminals>
   </main>
 </div>
 @if (sheet()) {

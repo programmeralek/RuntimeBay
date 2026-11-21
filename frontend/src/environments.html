@@ -1,39 +1,19 @@
-<button class="secondary" (click)="show()">Environments · {{ workflow.definition.environments.length }}</button>
+@if (!hideTrigger) { <button class="secondary" (click)="show()">Environments · {{ workflow.definition.environments.length }}</button> }
 @if (open() && draft(); as d) {
   <div class="modal-backdrop" (click)="dismiss()" (keydown)="keydown($event)"><section class="modal environment-modal" role="dialog" aria-modal="true" aria-labelledby="environment-title" (click)="$event.stopPropagation()">
-    <div class="modal-top"><span class="eyebrow">ONE WORKFLOW, MANY TARGETS</span><button class="icon-button" aria-label="Close environments" (click)="dismiss()" [disabled]="saving()">×</button></div>
-    <h2 id="environment-title">{{ reviewing() ? 'Review changes.' : 'Environments.' }}</h2>
-    <p>Each resource keeps its own target. Saving selects an environment; it never starts, stops, creates, or deletes remote resources.</p>
-    @if (active) { <p class="notice">Stop this workflow’s services before applying changes.</p> }
-    @if (!reviewing()) {
-      <label>ENVIRONMENT<select [ngModel]="d.defaultEnvironmentId" (ngModelChange)="select($event)" [disabled]="saving()">@for (env of d.environments; track env.id) { <option [value]="env.id">{{ env.name }}</option> }</select></label>
-      <div class="section-actions"><button class="secondary" (click)="add()" [disabled]="saving() || d.environments.length >= 20">＋ Duplicate environment</button><button class="text-button" (click)="remove()" [disabled]="saving() || d.environments.length < 2">Remove environment</button></div>
-      <label>NAME<input maxlength="128" [ngModel]="name()" (ngModelChange)="rename($event)" [disabled]="saving()"></label>
-      <div class="environment-bindings">
-        @for (resource of d.resources; track resource.id) {
-          <label>{{ resource.name }} <small>{{ resource.type }}</small>
-            @if (resource.type === 'service') {
-              <select [ngModel]="target(resource.id).id" (ngModelChange)="bind(resource.id, $event, 'machine')" [disabled]="saving()">
-                @for (host of hosts(); track host.id) { <option [value]="host.id">{{ host.name }}{{ host.local ? '' : ' · Remote execution planned' }}</option> }
-              </select>
-            } @else {
-              <select [ngModel]="containerId(resource.id)" (ngModelChange)="bind(resource.id, $event, 'docker')" [disabled]="saving()">
-                @for (container of containers(); track container.id) { <option [value]="container.id">{{ container.name }} · {{ container.connection.context }} · {{ container.image }}</option> }
-              </select>
-            }
-            <small class="target-address">{{ label(target(resource.id), resource.id) }}</small>
-          </label>
-        }
-      </div>
-      <p class="resource-note">Link containers in any workflow first to make them available here. Database containers can be bound just like Kafka or a cache. SQL connections stay inside CloudBeaver. Service commands, directories, and ports are shared definitions; this editor changes targets. Duplicating here copies service/container target bindings. Attach external service, database, and terminal references separately in each environment.</p>
-    } @else {
-      <ul class="environment-review">@for (change of changes(); track $index) { <li>{{ change }}</li> }@empty { <li>No changes.</li> }</ul>
-      <p class="resource-note">Remote machine bindings remain visible but cannot start services yet. Container controls will address the selected container ID on its pinned Docker endpoint.</p>
-    }
-    @if (error()) { <p class="form-error" role="alert">{{ error() }}</p> }
-    <div class="modal-footer"><button class="text-button" (click)="reviewing() ? reviewing.set(false) : dismiss()" [disabled]="saving()">{{ reviewing() ? 'Back to editing' : 'Cancel' }}</button>
-      @if (reviewing()) { <button class="primary" (click)="apply()" [disabled]="saving() || active || !changes().length">Apply environment</button> }
-      @else { <button class="primary" (click)="review()" [disabled]="saving()">Review changes</button> }
+    <div class="modal-top"><span class="eyebrow">WORKFLOW ENVIRONMENTS</span><button class="icon-button" aria-label="Close environments" (click)="dismiss()" [disabled]="saving()">×</button></div>
+    <h2 id="environment-title">Environments.</h2>
+    <p>Every environment starts with Local’s workflow settings, services, containers, and resource targets. Add one to make a named copy.</p>
+    @if (active) { <p class="notice">Stop this workflow’s services before saving environment changes.</p> }
+    <div class="environment-list" role="group" aria-label="Choose an environment to rename">
+      @for (env of d.environments; track env.id) {
+        <div class="environment-list-row"><button type="button" class="environment-list-option" [class.selected]="env.id === d.defaultEnvironmentId" [attr.aria-pressed]="env.id === d.defaultEnvironmentId" (click)="select(env.id)" [disabled]="saving()"><span class="environment-list-check">{{ env.id === d.defaultEnvironmentId ? '✓' : '' }}</span><span>{{ env.name }}</span></button><button type="button" class="environment-list-delete" [attr.aria-label]="'Delete environment ' + env.name" title="Delete environment" (click)="requestRemove(env.id)" [disabled]="saving() || active || d.environments.length <= 1">×</button></div>
+      }
     </div>
+    <button class="secondary environment-add-button" (click)="add()" [disabled]="saving() || d.environments.length >= 20">＋ Add environment</button>
+    <label>NAME<input id="environment-name" maxlength="128" [ngModel]="name()" (ngModelChange)="rename($event)" [disabled]="saving()"></label>
+    @if (pendingRemoval(); as removalId) { @if (d.environments.find(env => env.id === removalId); as removal) { <div class="environment-delete-confirm" role="alertdialog" aria-label="Confirm environment deletion"><strong>Delete “{{ removal.name }}”?</strong><p>This removes its saved environment and bindings. Other environments and workflow resources stay in place.</p><div><button class="text-button" (click)="cancelRemove()" [disabled]="saving()">Keep environment</button><button class="danger-button" (click)="confirmRemove()" [disabled]="saving()">{{ saving() ? 'Deleting…' : 'Delete environment' }}</button></div></div> } }
+    @if (error()) { <p class="form-error" role="alert">{{ error() }}</p> }
+    <div class="modal-footer"><button class="text-button" (click)="dismiss()" [disabled]="saving()">Cancel</button><button class="primary" (click)="apply()" [disabled]="saving() || active || pendingRemoval() || !hasChanges()">{{ saving() ? 'Saving…' : 'Save changes' }}</button></div>
   </section></div>
 }

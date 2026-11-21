@@ -2,10 +2,11 @@ import { Component, Input, OnChanges, OnDestroy, inject, signal, computed } from
 import { FormsModule } from '@angular/forms';
 import { dockerHostName, DockerDiscovery, DockerEnvironment, DockerOverview, DockerContainer } from './docker-types';
 import { LoadingService } from './loading/loading.service';
+import { ReviewedLogoDirective } from './reviewed-logo.directive';
 interface Link { id: string; projectId: string; context: string; endpoint: string; containerId: string; name: string; image: string }
 interface ContainerState { link: Link; state: string; status: string; ports: string; error: string | null }
 
-@Component({ selector: 'app-workflow-containers', standalone: true, imports: [FormsModule], templateUrl: './workflow-containers.html' })
+@Component({ selector: 'app-workflow-containers', standalone: true, imports: [FormsModule, ReviewedLogoDirective], templateUrl: './workflow-containers.html' })
 export class WorkflowContainers implements OnChanges, OnDestroy {
   readonly hostLabel = dockerHostName;
   @Input() projectId = '';

@@ -14,7 +14,10 @@ export class Editor implements AfterViewInit, OnChanges, OnDestroy {
   @Input() projectId = '';
   @Input() session = '';
   @Input() requested: EditorDocument | null = null;
-  @Output() opened = new EventEmitter<void>();
+  @Input() temporary = false;
+  @Input() workspaceName = '';
+  @Input() workspaceDirectory = '';
+  @Output() dirtyChange = new EventEmitter<boolean>();
   @ViewChild('surface') surface!: ElementRef<HTMLElement>;
   tabs = signal<Tab[]>([]); selected = signal(''); error = signal(''); notice = signal(''); busy = signal(false);
   entries = signal<FileEntry[]>([]); directory = signal(''); mode = signal<'source' | 'values'>('source'); reveal = signal(false);
@@ -24,9 +27,9 @@ export class Editor implements AfterViewInit, OnChanges, OnDestroy {
     if (!this.visible) return;
     if (event.metaKey && !event.ctrlKey && event.key.toLowerCase() === 's') { event.preventDefault(); event.stopImmediatePropagation(); void this.save(); }
   };
-  constructor() { effect(() => { const dirty = this.tabs().some(tab => this.dirty(tab)); window.webkit?.messageHandlers.runtimeBay.postMessage({ action: 'editorDirty', dirty: dirty ? 'true' : 'false' }); }); }
+  constructor() { effect(() => { const dirty = this.tabs().some(tab => this.dirty(tab)); this.dirtyChange.emit(dirty); window.webkit?.messageHandlers.runtimeBay.postMessage({ action: 'editorDirty', dirty: dirty ? 'true' : 'false' }); }); }
   ngAfterViewInit() { this.mounted = true; window.addEventListener('beforeunload', this.beforeUnload); window.addEventListener('keydown', this.keyListener, true); if (this.requested) this.accept(this.requested); }
-  ngOnChanges(changes: SimpleChanges) { if (changes['requested'] && this.requested && this.mounted) this.accept(this.requested); if ((changes['projectId'] || changes['visible']) && this.visible && this.projectId) void this.browse(''); if (this.visible) setTimeout(() => this.view?.requestMeasure(), 0); }
+  ngOnChanges(changes: SimpleChanges) { if (changes['requested'] && this.requested && this.mounted) this.accept(this.requested); if ((changes['projectId'] || changes['visible']) && this.visible && this.projectId) void this.browse(''); if (changes['workspaceDirectory'] && this.temporary) this.directory.set(this.workspaceDirectory); if (this.visible) setTimeout(() => this.view?.requestMeasure(), 0); }
   ngOnDestroy() { this.destroyed = true; this.view?.destroy(); window.removeEventListener('beforeunload', this.beforeUnload); window.removeEventListener('keydown', this.keyListener, true); }
   current() { return this.tabs().find(tab => tab.document.id === this.selected()); }
   dirty(tab: Tab) { return tab.content !== tab.document.content; }
@@ -57,7 +60,7 @@ export class Editor implements AfterViewInit, OnChanges, OnDestroy {
     if (!document?.id) return;
     const existing = this.tabs().find(tab => tab.document.path === document.path);
     if (!existing) this.tabs.update(tabs => [...tabs, { document, content: document.content }]);
-    this.opened.emit(); void this.select(existing?.document.id || document.id);
+    void this.select(existing?.document.id || document.id);
   }
   async select(id: string) {
     const previous = this.current(); if (previous && this.view) previous.state = this.view.state;

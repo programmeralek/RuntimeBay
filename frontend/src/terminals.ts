@@ -2,6 +2,7 @@ import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild, effect, inp
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { pathSuggestionLabel } from './terminal-assist';
+import type { EditorDocument } from './editor';
 
 export interface ShellTab { id: string; name: string; directory: string; exitCode: number | null; hostId: string; hostName: string; connected?: boolean; workflowId?: string | null }
 interface Output { data: string; next: number; truncated: boolean; exitCode: number | null }
@@ -65,6 +66,7 @@ export class TerminalWorkspace {
 }
 interface AssistState { buffer: string; cursor: number; cwd: string; command: string; recognized: boolean; commands: string[]; paths: string[]; options: string[] }
 interface Renderer { terminal: Terminal; fit: FitAddon; element: HTMLElement; abort: AbortController; next: number; input: Promise<void>; queued: number; exited: boolean; editorSupported?: boolean }
+interface EditorRequest { document: EditorDocument; terminalId: string; terminalName: string; directory: string }
 
 @Component({
   selector: 'app-terminals', standalone: true,
@@ -275,14 +277,15 @@ export class Terminals implements AfterViewInit, OnDestroy {
   }
   private async pollAssist(id:string,renderer:Renderer) {
     while(!renderer.abort.signal.aborted&&!renderer.exited) {
-      if(this.visible()&&this.workspace().selected()===id) {
+      if((this.visible()||this.workspace().selected()===id)&&this.workspace().selected()===id) {
+        const tab=this.workspace().tabs().find(value=>value.id===id);
         try {
           const state=await this.workspace().api<AssistState|null>('/'+id+'/assist','GET',undefined,renderer.abort.signal);
           if(state&&this.workspace().selected()===id){this.assistantTabId=id;this.assist.set(state);}
           if(renderer.editorSupported !== false) {
             try {
-              const document=await this.workspace().api<unknown|null>('/'+id+'/editor','GET',undefined,renderer.abort.signal);
-              if(document) window.dispatchEvent(new CustomEvent('runtimebay:edit', {detail:document}));
+              const document=await this.workspace().api<EditorDocument|null>('/'+id+'/editor','GET',undefined,renderer.abort.signal);
+              if(document&&tab) window.dispatchEvent(new CustomEvent<EditorRequest>('runtimebay:edit', {detail:{document,terminalId:id,terminalName:tab.name,directory:state?.cwd||tab.directory}}));
             } catch(error) { if((error as Error & {status?:number}).status === 404) renderer.editorSupported=false; else throw error; }
           }
         } catch(error) { if(!renderer.abort.signal.aborted)this.workspace().error.set((error as Error).message); }

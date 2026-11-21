@@ -39,6 +39,8 @@ cat > "$runtimebay_app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>RuntimeBay</string>
 <key>CFBundleIconFile</key><string>RuntimeBay.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
+<key>NSPrincipalClass</key><string>NSApplication</string>
 <key>CFBundleShortVersionString</key><string>0.5.0</string>
 <key>CFBundleVersion</key><string>13</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
@@ -46,6 +48,7 @@ cat > "$runtimebay_app/Contents/Info.plist" <<'PLIST'
 <key>NSHumanReadableCopyright</key><string>Runtime Bay contributors</string>
 </dict></plist>
 PLIST
+printf 'APPL????' > "$runtimebay_app/Contents/PkgInfo"
 # Resources are not a nested-code location; sign executable helpers explicitly.
 codesign --force --sign - "$runtimebay_app/Contents/Resources/runtimebay-launcher"
 codesign --force --sign - "$runtimebay_app/Contents/Resources/runtimebay-terminal"

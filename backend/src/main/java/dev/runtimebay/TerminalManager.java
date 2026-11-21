@@ -72,6 +72,14 @@ final class TerminalManager implements AutoCloseable {
         var shell=shells.get(id);if(shell!=null)synchronized(shell){shell.name=tab.name();}
         return list().stream().filter(v->v.id().equals(id)).findFirst().orElseThrow();
     }
+    synchronized View promote(String id,String projectId,String name)throws IOException {
+        projects.project(projectId); validateName(name); var old=definition(id);
+        if(!old.hostId().equals("local"))throw new ApiException(400,"Only a local temporary terminal can become a workflow terminal");
+        var tab=new SavedTab(id,name.trim(),old.directory(),old.hostId(),old.hostName(),projectId); saved.put(id,tab);
+        try{persist();}catch(IOException error){saved.put(id,old);throw error;}
+        var shell=shells.get(id);if(shell!=null)synchronized(shell){shell.name=tab.name();shell.workflowId=projectId;}
+        return list().stream().filter(v->v.id().equals(id)).findFirst().orElseThrow();
+    }
     private static void validateName(String name){if(name==null||name.isBlank()||name.length()>128||name.chars().anyMatch(Character::isISOControl))throw new ApiException(400,"Enter a terminal name of up to 128 characters");}
     private void persist()throws IOException{DefinitionTransaction.write(projects.directory().resolve("terminals.json"),gson.toJson(new Registry(1,List.copyOf(saved.values()))).getBytes(StandardCharsets.UTF_8));}
     private View launch(SavedTab tab,Path directory, List<String> command) throws IOException {
@@ -189,7 +197,8 @@ final class TerminalManager implements AutoCloseable {
         final String id, directory;
         String name;
         final Process process;
-        final String hostId, hostName, workflowId;
+        final String hostId, hostName;
+        String workflowId;
         final Path assistDirectory;
         final Path assistFile;
         final DataOutputStream input;
