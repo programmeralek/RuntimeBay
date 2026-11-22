@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 
 interface GitChange { path: string; indexStatus: string; worktreeStatus: string; untracked: boolean }
 interface GitBranch { name: string; upstream: string }
+interface GitRepository { path: string; name: string; branch: string }
 interface GitStatus { repository: boolean; branch: string; upstream: string; ahead: number; behind: number; hasRemote: boolean; changes: GitChange[]; branches: GitBranch[] }
 interface Commit { hash: string; shortHash: string; subject: string; author: string; date: string }
 
@@ -14,6 +15,8 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   @Input() session = '';
   @Input() visible = false;
   status = signal<GitStatus | null>(null);
+  repositories = signal<GitRepository[]>([]);
+  repositoryPath = signal('');
   commits = signal<Commit[]>([]);
   selectedPath = signal('');
   selectedStaged = signal(false);
@@ -26,17 +29,20 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   loading = signal(true);
   section = signal<'changes' | 'history'>('changes');
   branchPickerOpen = signal(false);
+  repositoryPickerOpen = signal(false);
   newBranchName = signal('');
   private controller?: AbortController;
   private timer?: ReturnType<typeof setInterval>;
   private noticeTimer?: ReturnType<typeof setTimeout>;
   private revision = 0;
+  private repositorySelections = this.readRepositorySelections();
   ngOnChanges(changes: SimpleChanges) {
     if (changes['projectId'] || changes['visible']) {
       this.revision++;
       clearInterval(this.timer);
       if (changes['projectId']) this.clearNotice();
       if (changes['projectId']) { this.branchPickerOpen.set(false); this.newBranchName.set(''); }
+      if (changes['projectId']) { this.repositories.set([]); this.repositoryPath.set(this.repositorySelections[this.projectId] || ''); this.repositoryPickerOpen.set(false); }
       if (this.visible && this.projectId) { void this.load(); this.timer = setInterval(() => { if (!this.busy()) void this.load(false); }, 6000); }
       else { clearInterval(this.timer); this.diff.set(''); this.commits.set([]); }
     }
@@ -67,7 +73,19 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     const revision = this.revision; this.controller?.abort(); this.controller = new AbortController();
     if (showLoading) this.loading.set(true);
     try {
-      const status = await this.api<GitStatus>(`/projects/${this.projectId}/git`);
+      let repositories = this.repositories();
+      if (showLoading || !repositories.length) {
+        repositories = await this.api<GitRepository[]>(`/projects/${this.projectId}/git/repositories`);
+        if (revision !== this.revision) return;
+        this.repositories.set(repositories);
+      }
+      let selected = this.repositoryPath();
+      if (!repositories.some(repository => repository.path === selected)) selected = this.repositorySelections[this.projectId] || repositories[0]?.path || '.';
+      if (!repositories.some(repository => repository.path === selected)) selected = repositories[0]?.path || '.';
+      this.repositoryPath.set(selected);
+      this.repositorySelections[this.projectId] = selected;
+      try { localStorage.setItem('runtimebay.gitRepositorySelections', JSON.stringify(this.repositorySelections)); } catch { /* Selection still works while this window remains open. */ }
+      const status = await this.api<GitStatus>(`/projects/${this.projectId}/git?repository=${encodeURIComponent(selected)}`);
       if (revision !== this.revision) return;
       this.status.set(status); this.error.set('');
       if (status.repository && this.section() === 'history') await this.loadHistory();
@@ -82,10 +100,17 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     if (ok) { this.branchPickerOpen.set(false); this.newBranchName.set(''); }
   }
   createBranch() { return this.checkoutBranch(this.newBranchName(), true); }
-  async loadHistory() { try { this.commits.set(await this.api<Commit[]>(`/projects/${this.projectId}/git/log`)); } catch (e) { this.error.set((e as Error).message); } }
+  selectRepository(path: string) {
+    if (this.busy() || !this.repositories().some(repository => repository.path === path)) return;
+    this.repositoryPath.set(path); this.repositorySelections[this.projectId] = path;
+    try { localStorage.setItem('runtimebay.gitRepositorySelections', JSON.stringify(this.repositorySelections)); } catch { /* Selection still works while this window remains open. */ }
+    this.repositoryPickerOpen.set(false); this.branchPickerOpen.set(false); this.selectedPath.set(''); this.diff.set(''); this.commits.set([]); this.commitDetail.set(''); this.status.set(null);
+    void this.load();
+  }
+  async loadHistory() { try { this.commits.set(await this.api<Commit[]>(`/projects/${this.projectId}/git/log?repository=${encodeURIComponent(this.repositoryPath() || '.')}`)); } catch (e) { this.error.set((e as Error).message); } }
   async showDiff(change: GitChange, staged: boolean) {
     this.selectedPath.set(change.path); this.selectedStaged.set(staged); this.commitDetail.set(''); this.diff.set('Loading diff…');
-    try { const value = await this.api<{diff: string}>(`/projects/${this.projectId}/git/diff?path=${encodeURIComponent(change.path)}&staged=${staged}`); this.diff.set(value.diff || 'No textual diff is available for this file.'); }
+    try { const value = await this.api<{diff: string}>(`/projects/${this.projectId}/git/diff?repository=${encodeURIComponent(this.repositoryPath() || '.')}&path=${encodeURIComponent(change.path)}&staged=${staged}`); this.diff.set(value.diff || 'No textual diff is available for this file.'); }
     catch (e) { this.diff.set((e as Error).message); }
   }
   async stage(change: GitChange) { await this.mutate('stage', { path: change.path }); }
@@ -118,7 +143,7 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   }
   async openCommit(commit: Commit) {
     this.selectedPath.set(''); this.diff.set('');
-    try { this.commitDetail.set((await this.api<{detail: string}>(`/projects/${this.projectId}/git/commit/${commit.hash}`)).detail); }
+    try { this.commitDetail.set((await this.api<{detail: string}>(`/projects/${this.projectId}/git/commit/${commit.hash}?repository=${encodeURIComponent(this.repositoryPath() || '.')}`)).detail); }
     catch (e) { this.error.set((e as Error).message); }
   }
   async mutate(action: string, body: unknown, successMessage?: string): Promise<boolean> {
@@ -126,8 +151,10 @@ export class WorkflowGit implements OnChanges, OnDestroy {
     const projectId = this.projectId;
     this.busy.set(true); this.error.set(''); this.clearNotice();
     try {
-      const value = action === 'init' ? await this.api<GitStatus>(`/projects/${projectId}/git/init`, 'POST', body)
-        : await this.api<GitStatus>(`/projects/${projectId}/git/${action}`, 'POST', body);
+      const repositoryPath = this.repositoryPath() || '.';
+      const payload = { ...(body as object), repositoryPath };
+      const value = action === 'init' ? await this.api<GitStatus>(`/projects/${projectId}/git/init`, 'POST', payload)
+        : await this.api<GitStatus>(`/projects/${projectId}/git/${action}`, 'POST', payload);
       if (projectId !== this.projectId) return true;
       this.status.set(value); this.diff.set(''); this.selectedPath.set('');
       if (this.section() === 'history') await this.loadHistory();
@@ -141,4 +168,12 @@ export class WorkflowGit implements OnChanges, OnDestroy {
   changed(change: GitChange) { return change.worktreeStatus !== ' '; }
   statusLabel(change: GitChange) { return change.untracked ? 'Untracked' : `${change.indexStatus !== ' ' ? change.indexStatus : ''}${change.worktreeStatus !== ' ' ? change.worktreeStatus : ''}`; }
   trackPath(_index: number, item: GitChange) { return item.path; }
+  currentRepository() { return this.repositories().find(repository => repository.path === this.repositoryPath()) || null; }
+  private readRepositorySelections(): Record<string, string> {
+    try {
+      const value = JSON.parse(localStorage.getItem('runtimebay.gitRepositorySelections') || '{}');
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+      return Object.fromEntries(Object.entries(value).filter(([key, path]) => !!key && typeof path === 'string')) as Record<string, string>;
+    } catch { return {}; }
+  }
 }

@@ -214,17 +214,26 @@ final class ApiServer implements AutoCloseable {
     }
     private void routeGit(HttpExchange e, String[] parts) throws IOException {
         String method = e.getRequestMethod(), project = parts[2];
-        if (parts.length == 4 && method.equals("GET")) { json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("init") && method.equals("POST")) { git.init(project); json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("diff") && method.equals("GET")) { json(e, 200, Map.of("diff", git.diff(project, query(e, "path"), "true".equals(query(e, "staged"))))); return; }
-        if (parts.length == 5 && parts[4].equals("log") && method.equals("GET")) { json(e, 200, git.log(project)); return; }
-        if (parts.length == 6 && parts[4].equals("commit") && method.equals("GET")) { json(e, 200, Map.of("detail", git.show(project, parts[5]))); return; }
-        if (parts.length == 5 && parts[4].equals("stage") && method.equals("POST")) { git.stage(project, string(body(e), "path")); json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("unstage") && method.equals("POST")) { git.unstage(project, string(body(e), "path")); json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("commit") && method.equals("POST")) { git.commit(project, string(body(e), "message")); json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("pull") && method.equals("POST")) { git.pull(project); json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("push") && method.equals("POST")) { git.push(project); json(e, 200, git.status(project)); return; }
-        if (parts.length == 5 && parts[4].equals("checkout") && method.equals("POST")) { var value = body(e); git.checkout(project, string(value, "branch"), Boolean.TRUE.equals(value.get("create"))); json(e, 200, git.status(project)); return; }
+        if (parts.length == 5 && parts[4].equals("repositories") && method.equals("GET")) { json(e, 200, git.repositories(project)); return; }
+        String repository = query(e, "repository");
+        if (parts.length == 4 && method.equals("GET")) { json(e, 200, git.status(project, repository)); return; }
+        if (parts.length == 5 && parts[4].equals("diff") && method.equals("GET")) { json(e, 200, Map.of("diff", git.diff(project, repository, query(e, "path"), "true".equals(query(e, "staged"))))); return; }
+        if (parts.length == 5 && parts[4].equals("log") && method.equals("GET")) { json(e, 200, git.log(project, repository)); return; }
+        if (parts.length == 6 && parts[4].equals("commit") && method.equals("GET")) { json(e, 200, Map.of("detail", git.show(project, repository, parts[5]))); return; }
+        if (parts.length == 5 && List.of("init", "stage", "unstage", "commit", "pull", "push", "checkout").contains(parts[4]) && method.equals("POST")) {
+            JsonObject value = body(e); repository = string(value, "repositoryPath");
+            switch (parts[4]) {
+                case "init" -> git.init(project, repository);
+                case "stage" -> git.stage(project, repository, string(value, "path"));
+                case "unstage" -> git.unstage(project, repository, string(value, "path"));
+                case "commit" -> git.commit(project, repository, string(value, "message"));
+                case "pull" -> git.pull(project, repository);
+                case "push" -> git.push(project, repository);
+                case "checkout" -> git.checkout(project, repository, string(value, "branch"), Boolean.TRUE.equals(value.get("create")));
+                default -> throw new ApiException(404, "Git endpoint not found");
+            }
+            json(e, 200, git.status(project, repository)); return;
+        }
         throw new ApiException(404, "Git endpoint not found");
     }
     private void routeEditor(HttpExchange e, String[] parts) throws IOException {
