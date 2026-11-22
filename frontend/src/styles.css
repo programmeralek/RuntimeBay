@@ -82,8 +82,11 @@ a {
   width:61px;
   height:63px;
   flex-shrink:0;
-  background:var(--nav-text)
+  background:var(--nav-text);
+  position:relative;
+  overflow:hidden
 }
+.brand-mark-fill{position:absolute;inset:0;pointer-events:none;background:var(--accent);clip-path:inset(100% 0 0 0)}
 .bay-logo {
   display:inline-block;
   -webkit-mask:url('/assets/runtime-bay.png') center / contain no-repeat;

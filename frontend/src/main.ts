@@ -12,6 +12,7 @@ import { WorkflowContainers } from './workflow-containers';
 import { Databases } from './databases';
 import { WorkflowGit } from './workflow-git';
 import { Editor, type EditorDocument } from './editor';
+import { BrandMarkDirective } from './brand-mark.directive';
 import { Containers } from './containers';
 import { Hosts } from './hosts';
 import { Tunnels } from './tunnels';
@@ -28,7 +29,7 @@ interface TemporaryWorkspace { terminalId: string; name: string; directory: stri
 interface TerminalEditorRequest { document: EditorDocument; terminalId: string; terminalName: string; directory: string }
 
 @Component({
-  selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe, Containers, Hosts, Tunnels, Terminals, WorkflowContainers, Databases, WorkflowGit, Editor, Environments, Attachments, WorkflowYaml],
+  selector: 'app-root', standalone: true, imports: [FormsModule, DatePipe, Containers, Hosts, Tunnels, Terminals, WorkflowContainers, Databases, WorkflowGit, Editor, Environments, Attachments, WorkflowYaml, BrandMarkDirective],
   templateUrl: './app.html'
 })
 class App implements OnDestroy {
