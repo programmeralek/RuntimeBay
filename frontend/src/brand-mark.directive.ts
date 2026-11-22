@@ -9,12 +9,8 @@ export class BrandMarkDirective implements AfterViewInit, OnDestroy {
   constructor(private host: ElementRef<HTMLElement>) {}
 
   ngAfterViewInit() {
-    const mark = this.host.nativeElement.querySelector<HTMLElement>('.brand-mark');
-    if (!mark) return;
-    this.fill = document.createElement('span');
-    this.fill.className = 'brand-mark-fill';
-    this.fill.setAttribute('aria-hidden', 'true');
-    mark.append(this.fill);
+    this.fill = this.host.nativeElement.querySelector<HTMLSpanElement>('.brand-mark-fill') || undefined;
+    if (!this.fill) return;
     this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
     gsap.set(this.fill, { clipPath: 'inset(100% 0 0 0)' });
   }
@@ -28,7 +24,6 @@ export class BrandMarkDirective implements AfterViewInit, OnDestroy {
 
   ngOnDestroy() {
     if (this.fill) gsap.killTweensOf(this.fill);
-    this.fill?.remove();
   }
 
   private reveal() {

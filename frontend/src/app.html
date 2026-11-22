@@ -1,6 +1,6 @@
 <div class="app-shell" [class.terminal-fullscreen]="terminals.fullscreen()" [class.temporary-workspace]="view() === 'temporary'" [attr.inert]="sheet() || appearance.open() ? '' : null">
   <aside class="sidebar">
-    <div class="brand" rbBrandMark><span class="bay-logo brand-mark" aria-hidden="true"></span><div>Runtime Bay<small>A HOME FOR YOUR RUNTIMES</small></div></div>
+    <div class="brand" rbBrandMark><span class="brand-icon-stack" aria-hidden="true"><span class="bay-logo brand-mark-fill"></span><span class="bay-logo brand-mark"></span></span><div>Runtime Bay<small>A HOME FOR YOUR RUNTIMES</small></div></div>
     <button class="import-shortcut" (click)="openNew()"><span>＋</span> New <kbd>⌘ K</kbd></button>
     <button class="containers-nav" [class.selected]="view() === 'containers'" (click)="view.set('containers')"><span aria-hidden="true">▤</span> Containers <span>›</span></button>
     <button class="containers-nav" [class.selected]="view() === 'hosts'" (click)="view.set('hosts')"><span aria-hidden="true">⌘</span> Hosts <span>›</span></button>

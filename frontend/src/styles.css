@@ -68,7 +68,8 @@ a {
   gap:11px;
   font-size:calc(18px * var(--font-scale, 1));
   font-weight:650;
-  letter-spacing:-.4px
+  letter-spacing:-.4px;
+  cursor:default
 }
 .brand small {
   display:block;
@@ -79,14 +80,12 @@ a {
   font-weight:500
 }
 .brand-mark {
-  width:61px;
-  height:63px;
-  flex-shrink:0;
+  position:absolute;
+  inset:0;
+  z-index:1;
   background:var(--nav-text);
-  position:relative;
-  overflow:hidden
 }
-.brand-mark-fill{position:absolute;inset:0;pointer-events:none;background:var(--accent);clip-path:inset(100% 0 0 0)}
+.brand-icon-stack{position:relative;display:block;width:61px;height:63px;flex:0 0 61px}.brand-mark-fill{position:absolute;inset:0;z-index:0;pointer-events:none;background:var(--accent);-webkit-mask-image:url('/assets/runtime-bay-filled.png');mask-image:url('/assets/runtime-bay-filled.png');clip-path:inset(100% 0 0 0)}
 .bay-logo {
   display:inline-block;
   -webkit-mask:url('/assets/runtime-bay.png') center / contain no-repeat;
