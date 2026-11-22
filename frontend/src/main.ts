@@ -51,6 +51,10 @@ class App implements OnDestroy {
   projects = signal<Project[]>([]);
   workflows = signal<WorkflowView[]>([]);
   projectId = signal<string | null>(null);
+  workflowRenameId = signal<string | null>(null);
+  workflowNameDraft = signal('');
+  workflowRenameBusy = signal(false);
+  workflowRenameError = signal('');
   private readonly workflowViews = this.readWorkflowViews();
   private readonly workflowTerminalIds = this.readWorkflowTerminalIds();
   serviceId = signal<string | null>(null);
@@ -181,6 +185,10 @@ class App implements OnDestroy {
     if (!(event.target instanceof Element) || !event.target.closest('.environment-switcher')) this.environmentMenuOpen.set(false);
   };
   private commandListener = (event: Event) => this.runCommand((event as CustomEvent<WorkspaceCommand>).detail);
+  private terminalMissingListener = (event: Event) => {
+    const tab = (event as CustomEvent<ShellTab>).detail;
+    if (tab?.workflowId) void this.recoverWorkflowTerminal(tab.workflowId);
+  };
   private runCommand(command: WorkspaceCommand) {
     if (this.loader.active || this.appearance.open() || this.sheet() || document.querySelector('.workflow-container-modal, [role="dialog"]')) return;
     if (command === 'new-terminal') void this.newTerminal();
@@ -201,6 +209,7 @@ class App implements OnDestroy {
     window.addEventListener('runtimebay:folder', this.folderListener);
     window.addEventListener('keydown', this.keyListener);
     window.addEventListener('runtimebay:command', this.commandListener);
+    window.addEventListener('runtimebay:terminal-missing', this.terminalMissingListener);
     window.addEventListener('click', this.environmentOutsideListener);
     void this.loadingTasks.run('Opening your workspace…', () => this.refresh());
     this.timer = setInterval(() => void this.refresh(), 1500);
@@ -213,6 +222,7 @@ class App implements OnDestroy {
     window.removeEventListener('runtimebay:folder', this.folderListener);
     window.removeEventListener('keydown', this.keyListener);
     window.removeEventListener('runtimebay:command', this.commandListener);
+    window.removeEventListener('runtimebay:terminal-missing', this.terminalMissingListener);
     window.removeEventListener('click', this.environmentOutsideListener);
   }
   private async refreshTunnelStatus() {
@@ -306,8 +316,11 @@ class App implements OnDestroy {
   sidebarTerminals() { const merged = new Set(this.temporaryWorkspaces().map(item => item.terminalId)); return this.terminals.tabs().filter(tab => !tab.workflowId && !merged.has(tab.id)); }
   async openWorkflowTerminal() {
     const projectId=this.projectId(); if(!projectId)return;
+    this.view.set('workflow-terminal');
+    await this.terminals.whenRestored();
+    if (this.projectId() !== projectId) return;
     const tab=this.workflowTerminals().find(value => value.id === this.workflowTerminalIds[projectId]) || this.workflowTerminals()[0] || await this.terminals.createWorkflow(projectId);
-    if(tab){this.terminals.selected.set(tab.id);this.view.set('workflow-terminal');this.rememberWorkflowView();}
+    if(tab && this.projectId() === projectId){this.terminals.selected.set(tab.id);this.workflowTerminalIds[projectId]=tab.id;this.view.set('workflow-terminal');this.rememberWorkflowView();}
   }
   selectWorkflowTerminal(id: string) {
     const projectId = this.projectId();
@@ -417,14 +430,31 @@ class App implements OnDestroy {
     if (!id) return;
     const saved = this.workflowViews[id];
     if (saved === 'workflow-terminal') {
-      const preferredId = this.workflowTerminalIds[id];
-      const tabs = this.terminals.tabs().filter(value => value.workflowId === id);
-      const tab = tabs.find(value => value.id === preferredId) || tabs[0];
-      if (tab) { this.terminals.selected.set(tab.id); this.view.set('workflow-terminal'); }
-      else this.view.set('runtime');
+      this.view.set('workflow-terminal');
+      void this.restoreWorkflowTerminal(id);
       return;
     }
     this.view.set(saved || 'runtime');
+  }
+  private async restoreWorkflowTerminal(id: string) {
+    await this.terminals.whenRestored();
+    if (this.projectId() !== id || this.view() !== 'workflow-terminal') return;
+    const preferredId = this.workflowTerminalIds[id];
+    const tabs = this.terminals.tabs().filter(value => value.workflowId === id);
+    const tab = tabs.find(value => value.id === preferredId) || tabs[0] || await this.terminals.createWorkflow(id);
+    if (tab && this.projectId() === id && this.view() === 'workflow-terminal') {
+      this.terminals.selected.set(tab.id);
+      this.workflowTerminalIds[id] = tab.id;
+      try { localStorage.setItem('runtimebay.workflowTerminalIds', JSON.stringify(this.workflowTerminalIds)); } catch { /* A restored terminal remains usable when storage is unavailable. */ }
+    }
+  }
+  private async recoverWorkflowTerminal(id: string) {
+    if (this.projectId() !== id || this.view() !== 'workflow-terminal') return;
+    const tab = await this.terminals.createWorkflow(id);
+    if (!tab || this.projectId() !== id || this.view() !== 'workflow-terminal') return;
+    this.workflowTerminalIds[id] = tab.id;
+    this.terminals.selected.set(tab.id);
+    try { localStorage.setItem('runtimebay.workflowTerminalIds', JSON.stringify(this.workflowTerminalIds)); } catch { /* The replacement terminal still works without stored selection. */ }
   }
   selectProject(id: string | null, switchView = true) {
     if (this.projectId() === id) { if (switchView) this.restoreWorkflowView(id); return; }
@@ -432,6 +462,23 @@ class App implements OnDestroy {
     this.projectId.set(id);
     this.selectService(this.project()?.services[0]?.id || null);
     if (switchView) this.restoreWorkflowView(id);
+  }
+  beginWorkflowRename() {
+    const project = this.project(); if (!project || this.workflowRenameBusy()) return;
+    this.workflowNameDraft.set(project.name); this.workflowRenameError.set(''); this.workflowRenameId.set(project.id);
+  }
+  cancelWorkflowRename() { if (!this.workflowRenameBusy()) { this.workflowRenameId.set(null); this.workflowRenameError.set(''); } }
+  async saveWorkflowRename() {
+    const project = this.project(); if (!project || this.workflowRenameId() !== project.id || this.workflowRenameBusy()) return;
+    const name = this.workflowNameDraft().trim();
+    if (!name || name.length > 80) { this.workflowRenameError.set('Enter a workflow name up to 80 characters.'); return; }
+    this.workflowRenameBusy.set(true); this.workflowRenameError.set('');
+    try {
+      const renamed = await this.api<Project>(`/projects/${project.id}`, 'PUT', { name });
+      this.projects.update(items => items.map(item => item.id === renamed.id ? renamed : item));
+      this.workflowRenameId.set(null);
+    } catch (error) { this.workflowRenameError.set((error as Error).message); }
+    finally { this.workflowRenameBusy.set(false); }
   }
   selectService(id: string | null) {
     if (this.serviceId() === id) return;

@@ -142,6 +142,9 @@ final class ApiServer implements AutoCloseable {
                 json(e, 201, store.addProject(string(body, "name"), string(body, "path"))); return;
             }
         }
+        if (parts.length == 3 && parts[1].equals("projects") && method.equals("PUT")) {
+            json(e, 200, store.renameProject(parts[2], string(body(e), "name"))); return;
+        }
         if (parts.length == 4 && parts[1].equals("projects") && parts[3].equals("databases")) {
             String project = parts[2];
             if (method.equals("GET")) { var view = databases.status(project); databases.authorizeFrame(e, project); json(e, 200, view); return; }

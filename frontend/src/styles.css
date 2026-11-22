@@ -287,6 +287,7 @@ main {
   letter-spacing:-1.1px;
   margin:10px 0 9px
 }
+.workflow-name-button{padding:0;border:0;background:transparent;color:inherit;font:inherit;letter-spacing:inherit;cursor:pointer;text-align:left}.workflow-name-button:hover{color:var(--accent)}.workflow-name-button:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:3px}.workflow-name-edit{display:flex;align-items:center;gap:6px;margin:8px 0}.workflow-name-edit input{width:min(440px,70vw);font:inherit;font-size:calc(30px * var(--font-scale,1));font-weight:550;letter-spacing:-1px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px 9px}.workflow-name-edit button{width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font-size:18px}.workflow-name-edit button:first-of-type{color:var(--success-ink)}.workflow-name-edit button:disabled{opacity:.5}.workflow-rename-error{margin:4px 0;color:var(--danger-ink);font-size:12px}
 .subtitle {
   font-size:calc(11px * var(--font-scale, 1));
   color:var(--muted);

@@ -10,6 +10,7 @@ interface Output { data: string; next: number; truncated: boolean; exitCode: num
 /** Owns the tab collection; the backend owns shell lifetimes across view changes and reloads. */
 export class TerminalWorkspace {
   readonly tabs = signal<ShellTab[]>([]);
+  readonly restored = signal(false);
   readonly selected = signal<string | null>(null);
   readonly fullscreen = signal(false);
   readonly selectedTab = computed(() => this.tabs().find(tab => tab.id === this.selected()));
@@ -17,7 +18,9 @@ export class TerminalWorkspace {
   readonly creating = signal(false);
   readonly closing = signal<string[]>([]);
   private controller = new AbortController();
-  constructor(private token: string) { void this.restore(); }
+  private readonly restorePromise: Promise<void>;
+  constructor(private token: string) { this.restorePromise = this.restore(); }
+  whenRestored() { return this.restorePromise; }
   async api<T>(path: string, method = 'GET', body?: unknown, signal = this.controller.signal): Promise<T> {
     const response = await fetch('/api/terminals' + path, { method, signal,
       headers: { Authorization: 'Bearer ' + this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -29,6 +32,7 @@ export class TerminalWorkspace {
   private async restore() {
     try { const tabs = await this.api<ShellTab[]>(''); this.tabs.update(current => [...tabs, ...current.filter(tab => !tabs.some(existing => existing.id === tab.id))]); }
     catch (error) { if (!this.controller.signal.aborted) this.error.set((error as Error).message); }
+    finally { this.restored.set(true); }
   }
   async create(projectId: string | null, hostId?: string): Promise<boolean> {
     if (this.creating()) return false;
@@ -50,6 +54,10 @@ export class TerminalWorkspace {
   }
   async rename(id: string,name: string) {
     const tab=await this.api<ShellTab>('/'+id,'PUT',{name});this.tabs.update(tabs=>tabs.map(value=>value.id===id?tab:value));
+  }
+  discardMissing(id: string) {
+    this.tabs.update(tabs => tabs.filter(tab => tab.id !== id));
+    if (this.selected() === id) this.selected.set(null);
   }
   async close(id: string) {
     if (this.closing().includes(id)) return;
@@ -172,7 +180,12 @@ export class Terminals implements AfterViewInit, OnDestroy {
       }
       if (visible && selected) {
         const tab = tabs.find(tab => tab.id === selected);
-        if (tab && !this.renderers.has(selected) && !this.mounting.has(selected)) void this.mount(tab).catch(error => this.workspace().error.set((error as Error).message));
+        if (tab && !this.renderers.has(selected) && !this.mounting.has(selected)) void this.mount(tab).catch(error => {
+          if ((error as {status?:number}).status === 404 && tab.workflowId) {
+            this.workspace().discardMissing(tab.id);
+            window.dispatchEvent(new CustomEvent('runtimebay:terminal-missing', { detail: tab }));
+          } else this.workspace().error.set((error as Error).message);
+        });
         cancelAnimationFrame(this.frame);
         this.frame = requestAnimationFrame(() => {
           const renderer = this.renderers.get(selected);

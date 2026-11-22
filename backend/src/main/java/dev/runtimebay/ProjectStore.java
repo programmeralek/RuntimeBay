@@ -59,6 +59,14 @@ final class ProjectStore {
         commit(updated);
         return project;
     }
+    synchronized Project renameProject(String projectId, String name) throws IOException {
+        Project original = project(projectId);
+        String label = text(name, "Workflow name", 80);
+        var updated = new ArrayList<>(projects);
+        updated.set(updated.indexOf(original), new Project(original.id(), label, original.path(), original.services()));
+        commit(updated);
+        return project(projectId);
+    }
     synchronized Service saveService(String projectId, String id, String name, String command,
                                      String directory, Integer port) throws IOException {
         return saveService(projectId, id, name, command, directory, port, null);
