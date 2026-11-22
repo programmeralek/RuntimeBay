@@ -10,41 +10,41 @@
       <section class="git-summary">
         <div class="git-branch-cell">
           <small>BRANCH</small>
-          <details class="git-branch-control" [open]="branchPickerOpen()" (toggle)="branchPickerToggled($event)">
-            <summary class="git-branch-trigger" [class.open]="branchPickerOpen()" aria-haspopup="dialog" [attr.aria-label]="'Switch branch; current branch ' + (repo.branch || 'detached HEAD')" [attr.aria-expanded]="branchPickerOpen()">
-              <strong>⑂ {{ repo.branch || 'Detached HEAD' }}</strong><span aria-hidden="true">⌄</span>
-            </summary>
-            <div class="git-branch-menu" role="dialog" aria-label="Choose or create a branch" (keydown.escape)="branchPickerOpen.set(false)">
-              <h2>Local branches</h2>
-              @if (repo.branches.length) {
-                <div class="git-branch-list">
-                  @for (branch of repo.branches; track branch.name) {
-                    <button type="button" class="git-branch-option" [class.selected]="branch.name === repo.branch" (click)="checkoutBranch(branch.name)" [disabled]="busy() || branch.name === repo.branch">
-                      <span>{{ branch.name }}@if (branch.name === repo.branch) { <b>Current</b> }</span><small>{{ branch.upstream || 'Local only' }}</small>
-                    </button>
-                  }
-                </div>
-              } @else { <p class="git-branch-empty">No local branches yet.</p> }
-              <form class="git-create-branch" (ngSubmit)="createBranch()">
-                <label for="git-new-branch">Create and switch to a new branch</label>
-                <div><input id="git-new-branch" name="branch" maxlength="250" placeholder="feature/my-change" [ngModel]="newBranchName()" (ngModelChange)="newBranchName.set($event)" [disabled]="busy()"><button type="submit" class="git-primary" [disabled]="busy() || !newBranchName().trim()">＋ Create</button></div>
-              </form>
-              <small class="git-branch-help">Git keeps compatible local changes and stops if a switch would overwrite them.</small>
-            </div>
-          </details>
+          <button type="button" class="git-branch-trigger" [class.open]="branchPickerOpen()" [attr.aria-label]="'Switch branch; current branch ' + (repo.branch || 'detached HEAD')" [attr.aria-expanded]="branchPickerOpen()" (click)="branchPickerOpen.update(open => !open)">
+            <strong>⑂ {{ repo.branch || 'Detached HEAD' }}</strong><span class="git-branch-caret" aria-hidden="true">⌄</span>
+          </button>
           <span>{{ repo.upstream || 'No upstream branch' }}</span>
         </div>
         <div><small>CHANGES</small><strong>{{ repo.changes.length }}</strong><span>{{ repo.changes.length === 1 ? 'file to review' : 'files to review' }}</span></div>
         <div><small>SYNC</small><strong>{{ repo.ahead }} ↑ &nbsp; {{ repo.behind }} ↓</strong><span>{{ repo.upstream ? 'ahead and behind upstream' : 'No upstream configured' }}</span></div>
         <div class="git-remote-actions"><button (click)="pull()" [disabled]="busy() || !repo.upstream">↓ Pull</button><button (click)="push()" [disabled]="busy() || !repo.upstream">↑ Push</button></div>
       </section>
+      @if (branchPickerOpen()) {
+        <section class="git-branch-menu" role="region" aria-label="Choose or create a branch" (keydown.escape)="branchPickerOpen.set(false)">
+          <div class="git-branch-menu-heading"><h2>Local branches</h2><button type="button" class="git-branch-close" (click)="branchPickerOpen.set(false)" aria-label="Close branch picker">×</button></div>
+          @if (repo.branches.length) {
+            <div class="git-branch-list">
+              @for (branch of repo.branches; track branch.name) {
+                <button type="button" class="git-branch-option" [class.selected]="branch.name === repo.branch" (click)="checkoutBranch(branch.name)" [disabled]="busy() || branch.name === repo.branch">
+                  <span>{{ branch.name }}@if (branch.name === repo.branch) { <b>Current</b> }</span><small>{{ branch.upstream || 'Local only' }}</small>
+                </button>
+              }
+            </div>
+          } @else { <p class="git-branch-empty">No local branches yet.</p> }
+          <form class="git-create-branch" (ngSubmit)="createBranch()">
+            <label for="git-new-branch">Create and switch to a new branch</label>
+            <div><input id="git-new-branch" name="branch" maxlength="250" placeholder="feature/my-change" [ngModel]="newBranchName()" (ngModelChange)="newBranchName.set($event)" [disabled]="busy()"><button type="submit" class="git-primary" [disabled]="busy() || !newBranchName().trim()">＋ Create</button></div>
+          </form>
+          <small class="git-branch-help">Git keeps compatible local changes and stops if a switch would overwrite them.</small>
+        </section>
+      }
       <div class="git-tabs" role="tablist" aria-label="Git sections"><button role="tab" [class.selected]="section() === 'changes'" [attr.aria-selected]="section() === 'changes'" (click)="section.set('changes')">Changes <span>{{ repo.changes.length }}</span></button><button role="tab" [class.selected]="section() === 'history'" [attr.aria-selected]="section() === 'history'" (click)="section.set('history'); loadHistory()">History</button></div>
       @if (section() === 'changes') {
         <div class="git-workarea"><div class="git-changes"><div class="git-list-heading"><div class="git-list-heading-copy"><h2>Working tree</h2><span>{{ repo.changes.length }} files</span></div><button class="git-stage-all" (click)="stageAll()" [disabled]="busy() || !repo.changes.some(change => change.untracked || changed(change))">＋ Stage all</button></div>
           @for (change of repo.changes; track change.path) { <article class="git-change" [class.active]="selectedPath() === change.path"><button class="git-file" (click)="showDiff(change, staged(change) && !changed(change))"><span class="git-file-mark" [class.new]="change.untracked">{{ statusLabel(change) }}</span><code [title]="change.path">{{ change.path }}</code></button><div class="git-file-actions">@if (staged(change)) { <button (click)="showDiff(change, true)">Staged diff</button><button (click)="unstage(change)" [disabled]="busy()">Unstage</button> } @if (change.untracked || changed(change)) { <button (click)="showDiff(change, false)">Diff</button><button (click)="stage(change)" [disabled]="busy()">Stage</button> }</div></article> }
           @if (!repo.changes.length) { <div class="git-clean">Your working tree is clean.</div> }
           <div class="git-commit-box"><label for="git-commit-message">Commit message</label><textarea id="git-commit-message" [(ngModel)]="message" placeholder="Describe the changes you staged" maxlength="500" rows="3"></textarea><button class="git-primary" (click)="commit()" [disabled]="busy() || !message.trim() || !repo.changes.some(staged)">{{ busy() ? 'Working…' : 'Commit staged changes' }}</button><small>Only staged files are included.</small></div>
-        </div><div class="git-preview"><div class="git-preview-head"><strong>{{ selectedPath() || (commitDetail() ? 'Commit details' : 'Diff preview') }}</strong>@if (selectedPath()) { <span>{{ selectedStaged() ? 'STAGED' : 'WORKING TREE' }}</span> }</div><pre>{{ commitDetail() || diff() || 'Select a changed file to inspect its diff.' }}</pre></div></div>
+        </div><div class="git-preview"><div class="git-preview-head"><strong>{{ selectedPath() || (commitDetail() ? 'Commit details' : 'Diff preview') }}</strong>@if (selectedPath()) { <span>{{ selectedStaged() ? 'STAGED' : 'WORKING TREE' }}</span> }</div>@if (diff() && diff() !== 'Loading diff…') { <pre class="git-diff-lines">@for (line of diffLines(); track $index) { <span class="git-diff-line" [class.addition]="line.kind === 'addition'" [class.removal]="line.kind === 'removal'" [class.hunk]="line.kind === 'hunk'" [class.metadata]="line.kind === 'metadata'">{{ line.text || ' ' }}</span> }</pre> } @else { <pre>{{ commitDetail() || diff() || 'Select a changed file to inspect its diff.' }}</pre> }</div></div>
       } @else {
         <div class="git-history">@for (commit of commits(); track commit.hash) { <div class="git-commit-row"><button class="git-commit-hash" (click)="copyHash(commit.shortHash)" [attr.aria-label]="'Copy abbreviated commit hash ' + commit.shortHash" [title]="'Copy ' + commit.shortHash"><code>{{ commit.shortHash }}</code></button><button class="git-commit-open" (click)="openCommit(commit)" [attr.aria-label]="'View commit ' + commit.shortHash + ': ' + commit.subject"><span><strong>{{ commit.subject }}</strong><small>{{ commit.author }} · {{ commit.date }}</small></span><b>›</b></button></div> } @if (!commits().length) { <div class="git-clean">No commits yet.</div> }</div>
         <div class="git-preview git-history-preview"><div class="git-preview-head"><strong>Commit summary</strong></div><pre>{{ commitDetail() || 'Choose a commit to view its files and summary.' }}</pre></div>
