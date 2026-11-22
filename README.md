@@ -150,7 +150,7 @@ npm ci --cache .cache/npm
 npm run dev
 ```
 
-The development launcher builds the frontend, backend, and native host, then opens Runtime Bay with a live frontend watcher. Save a frontend change and the page rebuilds and refreshes automatically while keeping the same app session and its running services, terminals, and tunnels. If an editor tab has unsaved changes, the refresh waits until those changes are saved. Java or native changes require stopping and starting `npm run dev` again. Watch output is saved in `.build/web-watch.log`.
+The development launcher builds the frontend, backend, and native host, then opens a development instance of Runtime Bay with a live frontend watcher. Keep this instance open while editing: each completed frontend build refreshes its page while keeping the same app session and its running services, terminals, and tunnels. Opening the packaged app from `dist/Runtime Bay.app` or Applications uses its bundled frontend and does not watch repository edits. If an editor tab has unsaved changes, the development refresh waits until those changes are saved. Java or native changes require stopping and starting `npm run dev` again. Watch output is saved in `.build/web-watch.log`.
 
 ```sh
 npm run check        # Process/API/persistence tests, palette checks, Angular build

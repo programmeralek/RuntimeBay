@@ -17,7 +17,13 @@ mkdir -p .build
 npm run watch:web > .build/web-watch.log 2>&1 &
 watch_pid=$!
 fingerprint_web_assets() {
-  find "$RUNTIMEBAY_WEB_ROOT" -type f ! -name index.html -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}'
+  find "$RUNTIMEBAY_WEB_ROOT" -type f ! -name index.html ! -name index.html.runtimebay-tmp -exec shasum -a 256 {} + | LC_ALL=C sort | shasum -a 256 | awk '{print $1}'
+}
+write_web_build_id() {
+  local index="$RUNTIMEBAY_WEB_ROOT/index.html" temporary="$RUNTIMEBAY_WEB_ROOT/index.html.runtimebay-tmp"
+  awk '!/<!-- runtimebay-dev-build:/' "$index" > "$temporary"
+  printf '\n<!-- runtimebay-dev-build: %s -->\n' "$1" >> "$temporary"
+  mv "$temporary" "$index"
 }
 monitor_pid=""
 (
@@ -29,7 +35,7 @@ monitor_pid=""
       sleep 1
       stable="$(fingerprint_web_assets)"
       if [[ "$stable" == "$current" ]]; then
-        touch "$RUNTIMEBAY_WEB_ROOT/index.html"
+        write_web_build_id "$stable"
         previous="$stable"
       fi
     fi
