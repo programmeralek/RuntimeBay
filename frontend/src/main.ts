@@ -336,6 +336,19 @@ class App implements OnDestroy {
     const tab = await this.terminals.createWorkflow(projectId);
     if (tab) this.selectWorkflowTerminal(tab.id);
   }
+  async closeWorkflowTerminal(id: string) {
+    const projectId = this.projectId();
+    if (!projectId || !this.terminals.tabs().some(tab => tab.id === id && tab.workflowId === projectId)) return;
+    if (!await this.terminals.close(id)) return;
+    const remaining = this.workflowTerminals();
+    if (!remaining.length) {
+      const replacement = await this.terminals.createWorkflow(projectId);
+      if (replacement && this.projectId() === projectId) this.selectWorkflowTerminal(replacement.id);
+      return;
+    }
+    const selected = remaining.find(tab => tab.id === this.terminals.selected()) || remaining[0];
+    if (this.workflowTerminalIds[projectId] === id || this.terminals.selected() === selected.id) this.selectWorkflowTerminal(selected.id);
+  }
   async openHostTerminal(hostId: string) { this.view.set('terminal'); await this.terminals.create(null, hostId); }
   selectTerminal(id: string) { this.terminals.selected.set(id); this.view.set('terminal'); }
   private openTerminalEditor(request: TerminalEditorRequest) {

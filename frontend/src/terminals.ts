@@ -59,15 +59,17 @@ export class TerminalWorkspace {
     this.tabs.update(tabs => tabs.filter(tab => tab.id !== id));
     if (this.selected() === id) this.selected.set(null);
   }
-  async close(id: string) {
-    if (this.closing().includes(id)) return;
+  async close(id: string): Promise<boolean> {
+    if (this.closing().includes(id)) return false;
     this.closing.update(ids => [...ids, id]); this.error.set('');
     try {
       await this.api('/' + id, 'DELETE');
       const tabs = this.tabs(), index = tabs.findIndex(tab => tab.id === id), remaining = tabs.filter(tab => tab.id !== id);
+      if (index < 0) return false;
       this.tabs.set(remaining);
       if (this.selected() === id) this.selected.set(remaining[Math.min(index, remaining.length - 1)]?.id || null);
-    } catch (error) { this.error.set((error as Error).message); }
+      return true;
+    } catch (error) { this.error.set((error as Error).message); return false; }
     finally { this.closing.update(ids => ids.filter(value => value !== id)); }
   }
   destroy() { this.controller.abort(); }
