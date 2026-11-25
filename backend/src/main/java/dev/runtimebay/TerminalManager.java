@@ -21,7 +21,6 @@ final class TerminalManager implements AutoCloseable {
     private record Registry(int version,List<SavedTab> tabs) {}
     private final LinkedHashMap<String,SavedTab> saved = new LinkedHashMap<>();
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private int number;
     private boolean closed;
     TerminalManager(ProjectStore projects, Path launcher) { this(projects, launcher, null); }
     TerminalManager(ProjectStore projects, Path launcher, HostPasswords passwords) { this.projects = projects; this.launcher = launcher; this.passwords = passwords;
@@ -33,7 +32,6 @@ final class TerminalManager implements AutoCloseable {
                 if(tab==null||!UUID.fromString(tab.id()).toString().equals(tab.id())||saved.containsKey(tab.id())||tab.directory()==null||tab.hostId()==null||tab.hostName()==null)throw new IllegalArgumentException();
                 validateName(tab.name());saved.put(tab.id(),tab);
             }
-            number=saved.size();
         }catch(Exception error){throw new IllegalStateException("Cannot read saved terminal tabs. Existing data is preserved.",error);}
     }
     synchronized List<View> list() { if(closed)return List.of();return saved.values().stream().map(tab -> shells.containsKey(tab.id()) ? shells.get(tab.id()).view() : new View(tab.id(),tab.name(),tab.directory(),null,tab.hostId(),tab.hostName(),false,tab.workflowId())).toList(); }
@@ -56,9 +54,15 @@ final class TerminalManager implements AutoCloseable {
         return createSaved(directory,command,hostId,hostName,null);
     }
     private View createSaved(Path directory,List<String> command,String hostId,String hostName,String workflowId)throws IOException {
-        var tab=new SavedTab(UUID.randomUUID().toString(),(hostId.equals("local")?"":hostName+" · ")+"Terminal "+(++number),hostId.equals("local")?directory.toString():command.getLast(),hostId,hostName,workflowId);
+        var tab=new SavedTab(UUID.randomUUID().toString(),nextName(hostId,hostName),hostId.equals("local")?directory.toString():command.getLast(),hostId,hostName,workflowId);
         var view=launch(tab,directory,command);saved.put(tab.id(),tab);
         try{persist();}catch(IOException error){saved.remove(tab.id());shells.remove(tab.id()).close();throw error;}return view;
+    }
+    private String nextName(String hostId,String hostName) {
+        String base=(hostId.equals("local")?"":hostName+" · ")+"Terminal";
+        Set<String> names=new HashSet<>();for(var tab:saved.values())names.add(tab.name());
+        if(saved.isEmpty()&&!names.contains(base))return base;
+        for(int suffix=Math.max(1,saved.size());;suffix++){String candidate=base+" "+suffix;if(!names.contains(candidate))return candidate;}
     }
     synchronized SavedTab definition(String id){var tab=saved.get(id);if(tab==null)throw new ApiException(404,"Terminal not found");return tab;}
     synchronized View open(String id,HostRegistry.Host host,Path controls)throws IOException {
