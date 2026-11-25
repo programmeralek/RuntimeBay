@@ -54,15 +54,16 @@ final class TerminalManager implements AutoCloseable {
         return createSaved(directory,command,hostId,hostName,null);
     }
     private View createSaved(Path directory,List<String> command,String hostId,String hostName,String workflowId)throws IOException {
-        var tab=new SavedTab(UUID.randomUUID().toString(),nextName(hostId,hostName),hostId.equals("local")?directory.toString():command.getLast(),hostId,hostName,workflowId);
+        var tab=new SavedTab(UUID.randomUUID().toString(),nextName(hostId,hostName,workflowId),hostId.equals("local")?directory.toString():command.getLast(),hostId,hostName,workflowId);
         var view=launch(tab,directory,command);saved.put(tab.id(),tab);
         try{persist();}catch(IOException error){saved.remove(tab.id());shells.remove(tab.id()).close();throw error;}return view;
     }
-    private String nextName(String hostId,String hostName) {
+    private String nextName(String hostId,String hostName,String workflowId) {
         String base=(hostId.equals("local")?"":hostName+" · ")+"Terminal";
-        Set<String> names=new HashSet<>();for(var tab:saved.values())names.add(tab.name());
-        if(saved.isEmpty()&&!names.contains(base))return base;
-        for(int suffix=Math.max(1,saved.size());;suffix++){String candidate=base+" "+suffix;if(!names.contains(candidate))return candidate;}
+        List<SavedTab> siblings=saved.values().stream().filter(tab->Objects.equals(tab.workflowId(),workflowId)).toList();
+        Set<String> names=new HashSet<>();for(var tab:siblings)names.add(tab.name());
+        if(siblings.isEmpty()&&!names.contains(base))return base;
+        for(int suffix=Math.max(1,siblings.size());;suffix++){String candidate=base+" "+suffix;if(!names.contains(candidate))return candidate;}
     }
     synchronized SavedTab definition(String id){var tab=saved.get(id);if(tab==null)throw new ApiException(404,"Terminal not found");return tab;}
     synchronized View open(String id,HostRegistry.Host host,Path controls)throws IOException {
