@@ -57,6 +57,11 @@ class App implements OnDestroy {
   workflowRenameError = signal('');
   private readonly workflowViews = this.readWorkflowViews();
   private readonly workflowTerminalIds = this.readWorkflowTerminalIds();
+  private navigationHistory = this.readNavigationHistory();
+  private tabCycleTargets: string[] | null = null;
+  private tabCycleVisited: string[] = [];
+  private tabCycleIndex = 0;
+  private navigationUpdateQueued = false;
   serviceId = signal<string | null>(null);
   connected = signal(false);
   loading = signal(true);
@@ -167,7 +172,14 @@ class App implements OnDestroy {
     if (!this.projectForm.name) this.projectForm.name = path.split('/').filter(Boolean).at(-1) || 'Project';
   };
   private keyListener = (event: KeyboardEvent) => {
+    if (event.type === 'keyup' && (event.key === 'Control' || !event.ctrlKey)) { this.finishTabCycle(); return; }
     if (this.loader.active) return;
+    if (event.type === 'keydown' && event.key === 'Tab' && event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (this.appearance.open() || this.sheet() || document.querySelector('[role="dialog"]')) return;
+      event.preventDefault(); event.stopPropagation();
+      this.cycleRecentTabs(event.shiftKey ? -1 : 1);
+      return;
+    }
     if (event.key === 'Escape' && this.environmentMenuOpen()) { event.preventDefault(); this.environmentMenuOpen.set(false); return; }
     if (event.key === 'Tab' && this.sheet()) {
       const controls = Array.from(document.querySelectorAll<HTMLElement>('.modal button:not([disabled]), .modal input:not([disabled]), .modal textarea:not([disabled])'));
@@ -181,6 +193,7 @@ class App implements OnDestroy {
     if (command) { event.preventDefault(); this.runCommand(command); }
     if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key === ',' && !event.defaultPrevented) { event.preventDefault(); this.appearance.show(); }
   };
+  private focusLostListener = () => this.finishTabCycle();
   private environmentOutsideListener = (event: MouseEvent) => {
     if (!(event.target instanceof Element) || !event.target.closest('.environment-switcher')) this.environmentMenuOpen.set(false);
   };
@@ -205,9 +218,19 @@ class App implements OnDestroy {
         setTimeout(() => (document.querySelector<HTMLElement>('.modal input, .modal textarea') || document.querySelector<HTMLElement>('.modal button'))?.focus(), 0);
       } else this.returnFocus?.focus();
     });
+    effect(() => {
+      this.view(); this.projectId(); this.terminals.selected(); this.activeTemporaryId(); this.activeTemporary();
+      const key = this.currentNavigationKey();
+      if (!key || this.tabCycleTargets) return;
+      if (this.navigationUpdateQueued) return;
+      this.navigationUpdateQueued = true;
+      queueMicrotask(() => { this.navigationUpdateQueued = false; if (!this.tabCycleTargets) this.rememberNavigation(this.currentNavigationKey()); });
+    });
     window.addEventListener('runtimebay:edit', this.editorListener);
     window.addEventListener('runtimebay:folder', this.folderListener);
-    window.addEventListener('keydown', this.keyListener);
+    window.addEventListener('keydown', this.keyListener, true);
+    window.addEventListener('keyup', this.keyListener, true);
+    window.addEventListener('blur', this.focusLostListener);
     window.addEventListener('runtimebay:command', this.commandListener);
     window.addEventListener('runtimebay:terminal-missing', this.terminalMissingListener);
     window.addEventListener('click', this.environmentOutsideListener);
@@ -220,7 +243,9 @@ class App implements OnDestroy {
     this.terminals.destroy(); this.loadingTasks.close(); this.appearance.destroy(); this.destroyed = true; this.controller.abort(); clearInterval(this.timer); clearInterval(this.tunnelTimer);
     window.removeEventListener('runtimebay:edit', this.editorListener);
     window.removeEventListener('runtimebay:folder', this.folderListener);
-    window.removeEventListener('keydown', this.keyListener);
+    window.removeEventListener('keydown', this.keyListener, true);
+    window.removeEventListener('keyup', this.keyListener, true);
+    window.removeEventListener('blur', this.focusLostListener);
     window.removeEventListener('runtimebay:command', this.commandListener);
     window.removeEventListener('runtimebay:terminal-missing', this.terminalMissingListener);
     window.removeEventListener('click', this.environmentOutsideListener);
@@ -417,6 +442,101 @@ class App implements OnDestroy {
       const allowed = new Set(['runtime', 'workflow-terminal', 'databases', 'git', 'editor']);
       return Object.fromEntries(Object.entries(value).filter(([key, view]) => !!key && typeof view === 'string' && allowed.has(view))) as Record<string, 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor'>;
     } catch { return {}; }
+  }
+  private readNavigationHistory(): string[] {
+    try {
+      const value = JSON.parse(localStorage.getItem('runtimebay.navigationHistory') || '[]');
+      return Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string').slice(0, 50) : [];
+    } catch { return []; }
+  }
+  private currentNavigationKey(): string | null {
+    const view = this.view(), projectId = this.projectId();
+    if (view === 'temporary') {
+      const temporary = this.activeTemporary();
+      return temporary ? `temporary|${temporary.terminalId}|${temporary.mode}` : null;
+    }
+    if (view === 'terminal') {
+      const tab = this.terminals.tabs().find(value => value.id === this.terminals.selected() && !value.workflowId);
+      return tab ? `terminal|${tab.id}` : null;
+    }
+    if (['runtime', 'workflow-terminal', 'databases', 'git', 'editor'].includes(view)) {
+      if (!projectId) return view === 'runtime' ? 'global|home' : null;
+      if (view === 'workflow-terminal') {
+        const tab = this.workflowTerminals().find(value => value.id === this.terminals.selected()) || this.workflowTerminals()[0];
+        return tab ? `workflow|${projectId}|workflow-terminal|${tab.id}` : null;
+      }
+      return `workflow|${projectId}|${view}`;
+    }
+    return `global|${view}`;
+  }
+  private navigationAvailable(key: string): boolean {
+    const parts = key.split('|');
+    if (parts[0] === 'global') return ['home', 'containers', 'hosts', 'tunnels'].includes(parts[1]);
+    if (parts[0] === 'workflow') {
+      if (!this.projects().some(project => project.id === parts[1])) return false;
+      if (parts[2] === 'workflow-terminal') return this.terminals.tabs().some(tab => tab.id === parts[3] && tab.workflowId === parts[1]);
+      return ['runtime', 'databases', 'git', 'editor'].includes(parts[2]);
+    }
+    if (parts[0] === 'terminal') return this.terminals.tabs().some(tab => tab.id === parts[1] && !tab.workflowId);
+    if (parts[0] === 'temporary') return this.temporaryWorkspaces().some(item => item.terminalId === parts[1] && (parts[2] === 'terminal' || parts[2] === 'editor'));
+    return false;
+  }
+  private rememberNavigation(key: string | null) {
+    if (!key || !this.navigationAvailable(key)) return;
+    this.navigationHistory = [key, ...this.navigationHistory.filter(value => value !== key)].slice(0, 50);
+    try { localStorage.setItem('runtimebay.navigationHistory', JSON.stringify(this.navigationHistory)); } catch { /* Recent-tab switching still works for this app session. */ }
+  }
+  private cycleRecentTabs(direction: -1 | 1) {
+    if (!this.tabCycleTargets) {
+      const current = this.currentNavigationKey();
+      const recent = this.navigationHistory.filter((key, index, all) => all.indexOf(key) === index && this.navigationAvailable(key) && key !== current);
+      const targets = [...(current && this.navigationAvailable(current) ? [current] : []), ...recent];
+      if (targets.length < 2) return;
+      this.tabCycleTargets = targets; this.tabCycleVisited = current ? [current] : []; this.tabCycleIndex = 0;
+    }
+    const targets = this.tabCycleTargets;
+    if (!targets?.length) return;
+    this.tabCycleIndex = (this.tabCycleIndex + direction + targets.length) % targets.length;
+    const target = targets[this.tabCycleIndex];
+    this.tabCycleVisited.push(target);
+    void this.activateNavigation(target);
+  }
+  private finishTabCycle() {
+    if (!this.tabCycleTargets) return;
+    const visited = [...new Set(this.tabCycleVisited.reverse())];
+    const history = [...visited, ...this.navigationHistory.filter(key => !visited.includes(key))].slice(0, 50);
+    this.navigationHistory = history;
+    try { localStorage.setItem('runtimebay.navigationHistory', JSON.stringify(history)); } catch { /* Recent-tab switching still works for this app session. */ }
+    this.tabCycleTargets = null;
+    this.tabCycleVisited = [];
+  }
+  private async activateNavigation(key: string) {
+    const parts = key.split('|');
+    if (parts[0] === 'global') {
+      this.projectId.set(null); this.view.set(parts[1] === 'home' ? 'runtime' : parts[1] as 'containers' | 'hosts' | 'tunnels');
+      return;
+    }
+    if (parts[0] === 'workflow') {
+      const [, projectId, view, terminalId] = parts;
+      if (!this.projects().some(project => project.id === projectId)) return;
+      this.selectProject(projectId, false);
+      this.view.set(view as 'runtime' | 'workflow-terminal' | 'databases' | 'git' | 'editor');
+      if (view === 'workflow-terminal') {
+        const tab = this.terminals.tabs().find(value => value.id === terminalId && value.workflowId === projectId);
+        if (tab) { this.terminals.selected.set(tab.id); this.workflowTerminalIds[projectId] = tab.id; }
+      }
+      this.rememberWorkflowView();
+      return;
+    }
+    if (parts[0] === 'terminal') {
+      const tab = this.terminals.tabs().find(value => value.id === parts[1] && !value.workflowId);
+      if (tab) { this.terminals.selected.set(tab.id); this.view.set('terminal'); }
+      return;
+    }
+    if (parts[0] === 'temporary') {
+      const temporary = this.temporaryWorkspaces().find(item => item.terminalId === parts[1]);
+      if (temporary) { this.activeTemporaryId.set(temporary.terminalId); this.terminals.selected.set(temporary.terminalId); this.temporaryWorkspaces.update(items => items.map(item => item.terminalId === temporary.terminalId ? { ...item, mode: parts[2] as 'terminal' | 'editor' } : item)); this.view.set('temporary'); }
+    }
   }
   private readWorkflowTerminalIds(): Record<string, string> {
     try {
